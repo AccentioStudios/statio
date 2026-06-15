@@ -92,11 +92,19 @@ and **mints the shared `tag:ci` auth key** CI uses to reach it, printing a ready
   OAuth client ID    › k123ABC...
   OAuth client secret › ••••••••••••••••
 
-  ✓ gh secret set STATIO_TS_AUTHKEY --body 'tskey-auth-…'
+  ✓ gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body 'tskey-auth-…'
 ```
 
-Run that `gh secret set` from your machine — **one secret, reused by every repo** that deploys
-here. (Rotate it later by re-running `statio init server`.)
+Run that `gh secret set` **on your machine, not on the server** — there's no repo on the server, so
+`gh` there fails with *"not a git repository"*. The `--repo owner/repo` flag lets you run it from
+anywhere; or `cd` into the repo and drop the flag. It's **one secret, reused by every repo** that
+deploys here, so you can also set it once for the whole org:
+
+```sh
+gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body 'tskey-auth-…'
+```
+
+(Rotate it later by re-running `statio init server`.)
 
 ### A2 · Accept an app 🖥️
 

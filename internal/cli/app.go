@@ -172,10 +172,11 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 			}
 			sectionTitle("In your repo 💻 — add this step to your workflow")
 			printSnippet(targetOrPlaceholder(target), name, image, actionRef)
-			sectionTitle("GitHub secrets 💻 (from your machine)")
+			sectionTitle("GitHub secrets 💻 — on YOUR machine (gh logged in), not this server")
+			info("Use --repo so you needn't be inside the repo (or drop it and run from within it):")
 			codeBlock(
-				"gh secret set STATIO_TS_AUTHKEY --body '<the auth key that statio init server printed>'",
-				"gh secret set DATABASE_URL      --body '<the value of each env your statio.yaml requires>'",
+				"gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body '<the key statio init server printed>'",
+				"gh secret set DATABASE_URL      --repo <owner>/<repo> --body '<value for each env in your statio.yaml>'",
 			)
 			return nil
 		},

@@ -179,9 +179,13 @@ func newInitServerCmd() *cobra.Command {
 				warnLine("Could not create the auth key automatically: %v", err)
 				info("Check that the OAuth client has the 'auth_keys' scope and owns tag:ci, then retry.")
 			} else {
-				info("Auth key tag:ci created (reusable, ephemeral, valid for %d days). Put it in GitHub:", keyDays)
-				codeBlock("gh secret set STATIO_TS_AUTHKEY --body '" + key + "'")
-				info("The same key works for ALL your repos. Rotate it by re-running 'statio init server'.")
+				info("Auth key tag:ci created (reusable, ephemeral, valid for %d days).", keyDays)
+				info("Set it as a GitHub secret — run this on YOUR machine where 'gh' is logged in, NOT")
+				info("on this server (there's no repo here). The --repo flag means you needn't be inside it:")
+				codeBlock("gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body '" + key + "'")
+				info("Same key for ALL your repos — to set it once for a whole org instead:")
+				codeBlock("gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body '" + key + "'")
+				info("Rotate it by re-running 'statio init server'.")
 			}
 
 			sectionTitle("Next steps")
