@@ -1,0 +1,26 @@
+# push.yaml — what to deploy (lives in your repo). The Action reads this, signs it, and
+# sends it; the agent generates a safe compose from it. Secrets are NOT here: list env KEY
+# names and provide the VALUES from GitHub Secrets via the workflow's `env:` input.
+services:
+  - name: {{.Service}}            # your app: no `image:` → the signed digest is injected
+    ports: [3000]                 # → published on 127.0.0.1:3000 only
+    env: [DATABASE_URL]           # value comes from ${{ secrets.DATABASE_URL }}
+    env_inline:                   # non-secret config (committed here)
+      NODE_ENV: production
+    health: { path: /health }
+    # depends_on: [db]
+
+  # Example dependency (uncomment to add a database):
+  # - name: db
+  #   image: postgres:16@sha256:...   # from an allowlisted registry; pin by digest
+  #   env: [POSTGRES_PASSWORD]
+  #   volumes:
+  #     - { name: pgdata, path: /var/lib/postgresql/data }
+
+# Optional edge (the agent wires NPMplus + Cloudflare with its own creds):
+# proxy:
+#   domain: {{.Service}}.example.com
+#   upstream: {{.Service}}
+#   upstream_port: 3000
+# dns:
+#   domain: {{.Service}}.example.com

@@ -1,0 +1,50 @@
+name: deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      digest:
+        description: "Existing image digest to (re)deploy — use for rollback"
+        required: false
+
+# id-token: keyless cosign (OIDC); packages: push to GHCR; contents: checkout.
+permissions:
+  id-token: write
+  packages: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: {{.Image}}:${{ github.sha }}
+      - uses: sigstore/cosign-installer@v3
+      # Sign the immutable digest (never a mutable tag), keyless via the run's OIDC identity.
+      - run: cosign sign --yes {{.Image}}@${{ steps.build.outputs.digest }}
+      # Our tool. It reads push.yaml, builds the deploy payload, cosign-signs it with the
+      # SAME OIDC identity, and sends the signed envelope. The agent verifies it before acting.
+      - uses: {{.ActionRef}}
+        with:
+          target: {{.Target}}
+          service: {{.Service}}
+          image: {{.Image}}
+          digest: ${{ inputs.digest || steps.build.outputs.digest }}
+          ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts-oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}

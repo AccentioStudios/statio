@@ -1,0 +1,9 @@
+# Normalize all text to LF in the repo (the agent + Action run on Linux; shell scripts
+# and templates must not get CRLF).
+* text=auto eol=lf
+*.go text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.tmpl text eol=lf
+*.md text eol=lf

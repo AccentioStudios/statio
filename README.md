@@ -1,0 +1,332 @@
+<h1 align="center">push</h1>
+
+<p align="center">Despliega a tu propio servidor con un <code>git push</code> — sin SSH, sin abrir puertos.</p>
+
+---
+
+## Introducción
+
+**push** lleva tu imagen Docker a tu servidor de forma segura, sin las partes molestas del
+deploy self-hosted:
+
+- 🔌 **Sin SSH** y **sin puertos abiertos** a internet. El servidor no expone nada.
+- ✍️ **Imágenes firmadas.** Solo se despliega lo que tu CI firmó. Nadie más.
+- 🌐 **Dominio automático.** Configura el reverse proxy (NPMplus) y el registro DNS
+  (Cloudflare) en el mismo deploy.
+- 🧩 **Se integra como un step más** de GitHub Actions. Sin scripts frágiles.
+
+Funciona así: tu workflow construye y firma la imagen, y un pequeño **agente** en tu
+servidor (conectado por una red privada Tailscale) la recibe, la verifica y recrea el
+contenedor.
+
+```
+git push ─▶ CI: build + firma ─▶ push/action ─▶ 🛰️ agente en tu server ─▶ ✅ desplegado
+```
+
+> ¿Quieres el porqué de cada decisión técnica y el modelo de seguridad? Está en
+> [`docs/architecture.md`](docs/architecture.md).
+
+---
+
+## Instalación
+
+En el servidor, un solo comando:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/accentiostudios/push/main/install.sh | sudo sh
+```
+
+Detecta tu OS/arch, descarga el binario firmado desde GitHub Releases, verifica el checksum
+y lo instala en `/usr/local/bin/push`.
+
+<details><summary>Otras formas de instalar</summary>
+
+- **Con Go:** `go install github.com/accentiostudios/push/cmd/push@latest`
+- **Sin instalar nada (Go):** `go run github.com/accentiostudios/push/cmd/push@latest version`
+- **deb / rpm:** descarga el paquete del [release](https://github.com/accentiostudios/push/releases) → `sudo dpkg -i push_*.deb`
+- **Desde el código:** `git clone https://github.com/accentiostudios/push && cd push && go build -o push ./cmd/push`
+
+</details>
+
+Además necesitas **Docker** en el servidor y una **cuenta de Tailscale** (con el plan gratis
+es suficiente), que usas una sola vez en el [Quick Start](#quick-start). En CI no instalas
+nada: la Action descarga el binario.
+
+---
+
+## Quick Start
+
+Vamos a desplegar una API a un servidor en ~5 minutos.
+
+### 0 · Prerequisito (una vez)
+
+En el [admin console de Tailscale](https://login.tailscale.com/admin/settings/oauth) crea
+**dos OAuth clients**: uno con el tag `tag:agent` (para el server) y otro con `tag:ci`
+(para CI). Y pega esta ACL (Access controls):
+
+```json
+{
+  "tagOwners": { "tag:agent": ["autogroup:admin"], "tag:ci": ["autogroup:admin"] },
+  "acls": [ { "action": "accept", "src": ["tag:ci"], "dst": ["tag:agent:443"] } ],
+  "ssh": []
+}
+```
+
+> 💡 Esto es lo único manual. Solo `tag:ci` podrá hablarle al agente, y solo por un puerto.
+
+### 1 · Configura el servidor
+
+Ejecuta el asistente. Te guía paso a paso:
+
+```sh
+sudo push init server
+```
+
+```
+  ╭─────────────────────────────────────────────╮
+  │ push · init server                            │
+  │ Configura el agente de deploy en este servidor│
+  ╰─────────────────────────────────────────────╯
+
+  Nombre del servidor › push
+  GitHub org          › accentiostudios
+  Repositorio        › api
+  Branch             › main
+  OAuth secret       › ••••••••••••••••
+  ¿Escribir la configuración?  Yes
+  ✓ Escrito: /etc/push/config.yaml y la unit de systemd
+```
+
+### 2 · Habilita el servicio en el servidor
+
+Una sola vez, ops acepta el servicio y fija sus anclas de seguridad (qué repo de imagen se
+permite, qué registries de dependencias, qué dominios):
+
+```sh
+sudo push enable api --image ghcr.io/accentiostudios/api \
+  --proxy-domain-suffix example.com --dns-domain-suffix example.com
+```
+
+Secretos que solo ops debe ver (opcional — la mayoría vienen de GitHub Secrets, ver abajo):
+
+```sh
+sudo push env set api SOME_OPS_SECRET --secret-stdin --protected
+```
+
+> 🔒 ¿Imagen en un repo **privado**? Una vez, en el servidor: `docker login ghcr.io` (el
+> agente baja la imagen con el login de Docker del host).
+
+### 3 · Inicia el agente
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now push-agent
+```
+
+### 4 · Define tu app en el repo
+
+En tu repo, un asistente genera el workflow **y** un `push.yaml` starter:
+
+```sh
+push init repo
+```
+
+`push.yaml` describe tu app — servicios, puertos, env, dominio — y es la fuente de verdad:
+
+```yaml
+services:
+  - name: api                    # tu app: sin `image:` → se inyecta tu imagen firmada
+    ports: [3000]                # → publicado solo en 127.0.0.1:3000
+    env: [DATABASE_URL]          # el VALOR viene de ${{ secrets.DATABASE_URL }}
+    env_inline: { NODE_ENV: production }
+    health: { path: /health }
+proxy: { domain: api.example.com, upstream: api, upstream_port: 3000 }
+dns:   { domain: api.example.com }
+```
+
+El asistente imprime los 2 secrets de Tailscale que debes configurar:
+
+```sh
+gh secret set TS_OAUTH_CLIENT_ID     --body '...'
+gh secret set TS_OAUTH_CLIENT_SECRET --body '...'
+```
+
+Y en GitHub Secrets pones los valores que `push.yaml` pide (ej. `DATABASE_URL`).
+
+### 5 · Despliega 🚀
+
+```sh
+git push
+```
+
+Eso es todo. CI construye y firma la imagen, **firma el payload de deploy** (misma identidad
+keyless), y manda el envelope firmado. El agente lo verifica, baja la imagen, **genera el
+compose** desde tu `push.yaml` y recrea los contenedores. Verás el estado por etapa en los
+logs de la Action; el historial queda en `push logs api`.
+
+---
+
+## Guías
+
+### Agregar un dominio (reverse proxy + DNS)
+
+1. En el servidor, ejecuta el asistente de integraciones y pega en `/etc/push/config.yaml`
+   las líneas que imprime:
+
+   ```sh
+   sudo push init integrations    # te pregunta por NPMplus y Cloudflare, paso a paso
+   ```
+
+2. Permite el dominio al habilitar el servicio (ancla server-side):
+
+   ```sh
+   sudo push enable api --image ghcr.io/accentiostudios/api \
+     --proxy-domain-suffix example.com --proxy-upstream api \
+     --dns-domain-suffix example.com
+   ```
+
+3. Declara el dominio en tu `push.yaml` (en el repo):
+
+   ```yaml
+   proxy: { domain: api.example.com, upstream: api, upstream_port: 3000 }
+   dns:   { domain: api.example.com }
+   ```
+
+En el próximo deploy, el agente crea o actualiza el proxy host en NPMplus y el registro DNS
+apuntando a tu servidor. Si NPMplus o Cloudflare fallan, el deploy igual queda sano (estado
+`success_degraded`) y converge al reintentar. El dominio solo se acepta si cae bajo un sufijo
+permitido al habilitar (anti-hijack).
+
+> El cert TLS lo emites en NPMplus (Let's Encrypt) — la emisión automática desde el agente
+> es trabajo futuro. El registro DNS y el proxy host sí los maneja `push`.
+
+### Variables de entorno
+
+Las **values** viven en GitHub Secrets; tu `push.yaml` solo **rutea** qué key va a qué
+servicio. El agente las escribe en `/run/push/<svc>/<servicio>.env` en **tmpfs (RAM)** y las
+pasa al contenedor — nunca a disco persistente.
+
+```yaml
+# push.yaml (repo): declara las keys por servicio
+services:
+  - name: api
+    env: [DATABASE_URL, JWT_SECRET]   # values desde GitHub Secrets
+    env_inline: { NODE_ENV: production }   # config NO secreta, literal
+```
+
+```yaml
+# el workflow mapea cada key a su secret (GitHub las enmascara en logs)
+with:
+  env: |
+    DATABASE_URL=${{ secrets.DATABASE_URL }}
+    JWT_SECRET=${{ secrets.JWT_SECRET }}
+```
+
+Una base **server-side** sigue existiendo solo para secretos de ops que CI no debe ver:
+
+```sh
+sudo push env set api OPS_ONLY --secret-stdin --protected   # CI no puede sobreescribirla
+sudo push env set api MUST_HAVE --required                  # CI debe proveerla, o 422
+```
+
+> **Sobre los secretos at-rest (honesto):** el agente corre como root con `docker.sock`, así
+> que es root-equivalente. Las values de CI son **RAM-only** y no salen en logs/respuesta, pero
+> no hay cifrado at-rest mágico: `docker inspect` se las muestra a root local (inherente). La
+> protección real es que GitHub Secrets es el store, el canal va firmado, y nada toca el disco
+> persistente.
+
+### Hacer rollback
+
+Como cada deploy lleva un digest explícito, volver atrás es desplegar el digest viejo. Desde
+la pestaña **Actions → Run workflow** con el input `digest` (el workflow generado lo soporta).
+CI firma un payload nuevo con el digest viejo — válido y fresco.
+
+Y si un deploy nuevo no pasa el health check, **el rollback es automático**: vuelve a la última
+versión sana (imagen + env juntos). El snapshot vive en RAM (`/run`), así que el auto-rollback
+funciona en el mismo arranque; **tras un reboot** no hay rollback offline → se re-deploya desde
+CI (es el modelo courier).
+
+### Ver el historial / auditar
+
+```sh
+push logs api                       # timeline por deploy (en el server)
+push logs api --target push.<tailnet>.ts.net   # remoto, por la tailnet (redactado)
+```
+
+### Varios servicios o servidores
+
+- **Varios servicios**: `push enable <svc>` por cada uno; un `push.yaml` por repo describe los
+  contenedores (tu app + dependencias como postgres/redis).
+- **Varios servidores**: `push` es por-servidor. Ejecuta `push init server` en cada uno; cada
+  agente tiene su propio hostname (= su `audience` firmado) y CI elige el target. No se coordinan.
+
+---
+
+## Comandos
+
+```sh
+push init server          # asistente: configura el agente (interactivo)
+push init integrations    # asistente: NPMplus + Cloudflare + IP (interactivo)
+push init repo            # asistente: genera el workflow + push.yaml starter
+push enable <svc> --image REPO [--proxy-domain-suffix ...] [--dns-domain-suffix ...]
+
+push env set <svc> KEY=VALUE [--protected] [--required]
+push env set <svc> KEY --secret-stdin          # secreto de ops por stdin
+push env list <svc>
+push env rm  <svc> KEY
+
+push deploy --target HOST --service S --image REPO --digest D --deploy-seq N   # lo usa la Action
+push logs <svc> [--target HOST]   # audit log (local o remoto)
+push status --target HOST         # estado del agente
+push version
+```
+
+Los `init` se ejecutan interactivos en una terminal; en CI/scripts aceptan flags y secretos
+por `--*-stdin`.
+
+---
+
+## Solución de problemas
+
+| Síntoma | Qué revisar |
+|---------|-------------|
+| El agente no levanta (`no tailnet address`) | El OAuth client `tag:agent` y que el nodo esté aprobado en Tailscale. |
+| Deploy `403` `[audience]` | El payload apunta a otro server: revisa el `target`/`--audience` de la Action. |
+| Deploy `403` `[no_signature]` / `[identity_mismatch]` | Falta el bundle, o la identidad firmante no coincide con la configurada (org/repo/workflow/branch). |
+| Deploy `409` `[replay_seq]` o `[expired]` | Payload viejo/reusado: re-corre el deploy desde CI (mint fresco). |
+| Deploy `422` `[protected]`/`[required]` | Intentaste sobreescribir una key `--protected`, o falta una `--required`. |
+| `[registry_denied]` | Una dependencia usa un registry fuera del allowlist (`push enable --registries`). |
+| `success_degraded` que no se va | NPMplus o Cloudflare inalcanzable. Revisa `push init integrations`. Reintenta. |
+| `[timeout]` y revierte | La app no responde en el health path (loopback). Revisa el contenedor. |
+
+Cada falla trae un `code` estable + `hint`; el detalle crudo (output de compose) queda solo en
+`journalctl -u push-agent`, nunca en la respuesta a CI.
+
+---
+
+## Seguridad: runbook de compromiso de identidad
+
+Una sola identidad cosign firma **imagen y payload**. Si ese repo/workflow se compromete, un
+atacante puede firmar code + config. Mitigaciones y respuesta:
+
+- **Prevención:** branch protection + required reviews en el repo/ref firmante; alertá en cada
+  deploy (`push logs`).
+- **Rotación de un secreto filtrado** (sin esperar a CI): `push env set <svc> KEY --secret-stdin`
+  en el server (la base de ops es el camino break-glass).
+- **Rotar la identidad confiable:** es un cambio de `cosign.identity` en `/etc/push/config.yaml`,
+  distribuible a todos los agentes; reiniciá `push-agent`. No hay edición por-servicio.
+- **Acotado por diseño:** aunque el payload esté firmado, el DNS apunta solo a tu IP pinneada, el
+  upstream y los dominios están en allowlist, y el compose generado no puede escalar a root del
+  host (sin privileged/mounts/sock). El daño se limita a "tu propio repo desplegó algo".
+
+---
+
+## Cómo funciona por dentro
+
+La arquitectura, el pipeline de deploy, el contrato de wire, el modelo de env de dos
+archivos, el modelo de seguridad y el layout del código están en
+**[`docs/architecture.md`](docs/architecture.md)**.
+
+---
+
+<p align="center"><sub>Hecho por accentiostudios · sin SSH, sin puertos, sin drama.</sub></p>

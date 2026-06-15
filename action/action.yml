@@ -1,0 +1,76 @@
+name: "push deploy"
+description: "Deploy a signed image to a self-hosted server over Tailscale — no SSH, no public port."
+author: "accentiostudios"
+
+inputs:
+  target:
+    description: "Agent MagicDNS host (e.g. push.tailnet.ts.net). Also the signed audience."
+    required: true
+  service:
+    description: "Service slot name (must be accepted on the agent)"
+    required: true
+  image:
+    description: "Your app's image repository (e.g. ghcr.io/org/api)"
+    required: true
+  digest:
+    description: "Image digest (sha256:...), e.g. steps.build.outputs.digest"
+    required: true
+  push-file:
+    description: "Path to the repo's push.yaml (services + proxy + dns)"
+    required: false
+    default: "push.yaml"
+  env:
+    description: "Per-deploy env overrides as KEY=VALUE lines (source from ${{ secrets.* }} so GitHub masks them)"
+    required: false
+    default: ""
+  ts-oauth-client-id:
+    description: "Tailscale OAuth client id"
+    required: true
+  ts-oauth-secret:
+    description: "Tailscale OAuth client secret"
+    required: true
+  push-version:
+    description: "Version of the push binary to download"
+    required: false
+    default: "v1"
+  timeout:
+    description: "Deploy timeout (e.g. 5m)"
+    required: false
+    default: "5m"
+  strict:
+    description: "Treat success_degraded as failure"
+    required: false
+    default: "false"
+
+# NOTE: the calling workflow MUST grant `permissions: id-token: write` so cosign can sign
+# the deploy payload keyless with the run's OIDC identity (the same identity that signs the
+# image). The agent verifies that signature before applying anything.
+runs:
+  using: composite
+  steps:
+    - name: Install push binary
+      shell: bash
+      run: ${{ github.action_path }}/install-push.sh "${{ inputs.push-version }}"
+    - name: Install cosign
+      uses: sigstore/cosign-installer@v3
+    - name: Join tailnet (ephemeral tag:ci node)
+      uses: tailscale/github-action@v3
+      with:
+        oauth-client-id: ${{ inputs.ts-oauth-client-id }}
+        oauth-secret: ${{ inputs.ts-oauth-secret }}
+        tags: tag:ci
+    - name: Deploy
+      shell: bash
+      env:
+        # Secrets go via env, never argv (process listing / set -x). GitHub masks values
+        # sourced from ${{ secrets.* }}.
+        PUSH_ENV_OVERRIDES: ${{ inputs.env }}
+        PUSH_TARGET: ${{ inputs.target }}
+        PUSH_SERVICE: ${{ inputs.service }}
+        PUSH_IMAGE: ${{ inputs.image }}
+        PUSH_DIGEST: ${{ inputs.digest }}
+        PUSH_FILE: ${{ inputs.push-file }}
+        PUSH_DEPLOY_SEQ: ${{ github.run_number }}
+        PUSH_TIMEOUT: ${{ inputs.timeout }}
+        PUSH_STRICT: ${{ inputs.strict }}
+      run: ${{ github.action_path }}/deploy.sh

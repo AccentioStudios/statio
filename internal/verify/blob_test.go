@@ -1,0 +1,25 @@
+package verify
+
+import (
+	"context"
+	"testing"
+
+	"github.com/accentiostudios/push/internal/deploy"
+)
+
+// These cover the fail-closed guards that run BEFORE any trust-root fetch (no network).
+// The full accept/reject-by-signature path is exercised by the cosign integration test.
+func TestVerifyBlobFailsClosed(t *testing.T) {
+	v := New(true, true, "")
+	goodSigner := deploy.EffectiveSigner{OIDCIssuer: "https://token.actions.githubusercontent.com", Identity: "https://github.com/org/repo/.github/workflows/deploy.yml@refs/heads/main"}
+
+	if err := v.VerifyBlob(context.Background(), nil, []byte(`{}`), goodSigner); err == nil {
+		t.Error("empty payload must be rejected")
+	}
+	if err := v.VerifyBlob(context.Background(), []byte("x"), []byte(`{}`), deploy.EffectiveSigner{}); err == nil {
+		t.Error("empty signer identity must be rejected (no wildcard verify)")
+	}
+	if err := v.VerifyBlob(context.Background(), []byte("x"), []byte(`{}`), deploy.EffectiveSigner{OIDCIssuer: "https://x"}); err == nil {
+		t.Error("issuer-only (no subject/regexp) must be rejected")
+	}
+}

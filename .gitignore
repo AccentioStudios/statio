@@ -1,0 +1,14 @@
+# Build artifacts
+/push
+/push.exe
+/dist/
+
+# Go test / coverage
+*.test
+*.out
+coverage.*
+
+# Editor / OS
+.DS_Store
+*.swp
+*~

@@ -1,0 +1,59 @@
+# GoReleaser: produce los binarios, checksums y firmas cosign que install.sh y la Action
+# (action/install-push.sh) descargan desde GitHub Releases. Dispara con: git tag vX.Y.Z && git push --tags
+version: 2
+
+project_name: push
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: push
+    main: ./cmd/push
+    binary: push
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+# Sube el binario crudo como push_<os>_<arch> (sin versión en el nombre) para que
+# /releases/latest/download/push_linux_amd64 resuelva siempre al último.
+archives:
+  - id: bin
+    formats: [binary]
+    name_template: "push_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+# Firma cosign keyless del checksums.txt (dogfooding: el proyecto firma sus propios releases).
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    output: true
+    args:
+      - sign-blob
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+
+# Paquetes para el servidor: instala el binario en /usr/local/bin (la unit systemd la
+# genera `push init server`).
+nfpms:
+  - id: pkgs
+    package_name: push
+    formats: [deb, rpm]
+    maintainer: accentiostudios
+    description: Deploy a self-hosted server without SSH or a public port
+    homepage: https://github.com/accentiostudios/push
+    bindir: /usr/local/bin
+
+release:
+  github:
+    owner: accentiostudios
+    name: push
