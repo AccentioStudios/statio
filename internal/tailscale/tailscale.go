@@ -21,6 +21,27 @@ import (
 
 const apiBase = "https://api.tailscale.com"
 
+// apiMessage extracts Tailscale's human-readable error ("message") from a non-2xx response so
+// the operator sees WHY the request failed (wrong tag, expiry too long, missing scope, …)
+// instead of a bare status code. It is only ever called on error responses, whose body
+// describes the request — it never contains the client secret or the minted key.
+func apiMessage(body []byte) string {
+	var e struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &e) == nil && e.Message != "" {
+		return e.Message
+	}
+	s := strings.TrimSpace(string(body))
+	if s == "" {
+		return "(no response body)"
+	}
+	if len(s) > 300 {
+		s = s[:300] + "…"
+	}
+	return s
+}
+
 // Client talks to the Tailscale API for the default tailnet ("-") of the authenticated client.
 type Client struct {
 	baseURL string
@@ -53,7 +74,7 @@ func (c *Client) Token(ctx context.Context, clientID, clientSecret string) (stri
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("tailscale oauth: status %d (check the client id/secret and its scopes)", resp.StatusCode)
+		return "", fmt.Errorf("tailscale oauth: status %d: %s", resp.StatusCode, apiMessage(data))
 	}
 	var out struct {
 		AccessToken string `json:"access_token"`
@@ -110,7 +131,7 @@ func (c *Client) MintAuthKey(ctx context.Context, token string, o AuthKeyOpts) (
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("tailscale mint key: status %d (does the client have the auth_keys scope and own tag:ci?)", resp.StatusCode)
+		return "", fmt.Errorf("tailscale mint key: status %d: %s", resp.StatusCode, apiMessage(data))
 	}
 	var out struct {
 		Key string `json:"key"`

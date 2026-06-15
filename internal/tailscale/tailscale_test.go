@@ -61,4 +61,7 @@ func TestTokenErrorHidesSecret(t *testing.T) {
 	if strings.Contains(err.Error(), "supersecret") {
 		t.Errorf("error leaked the client secret: %v", err)
 	}
+	if !strings.Contains(err.Error(), "bad client") {
+		t.Errorf("error should surface Tailscale's message, got: %v", err)
+	}
 }
