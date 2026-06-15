@@ -84,12 +84,16 @@ Setup touches **two places**. Each command is tagged:
 
 Two steps, in order — the OAuth client can only own tags that already exist.
 
-**1. Define the tags.** Under *Access controls*, paste this ACL (creates `tag:agent` + `tag:ci`,
-lets only `tag:ci` reach the agent on one port):
+**1. Define the tags.** Under *Access controls*, paste this ACL. Each tag **owns itself** so the
+OAuth client (which carries the tags) is allowed to register the agent as `tag:agent` and mint
+`tag:ci` keys — without self-ownership Tailscale rejects both with *"tags … not permitted"*:
 
 ```json
 {
-  "tagOwners": { "tag:agent": ["autogroup:admin"], "tag:ci": ["autogroup:admin"] },
+  "tagOwners": {
+    "tag:agent": ["autogroup:admin", "tag:agent"],
+    "tag:ci":    ["autogroup:admin", "tag:ci"]
+  },
   "acls": [ { "action": "accept", "src": ["tag:ci"], "dst": ["tag:agent:443"] } ],
   "ssh": []
 }

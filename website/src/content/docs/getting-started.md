@@ -36,11 +36,22 @@ agent) and `tag:ci` (CI), and allows only `tag:ci` to reach the agent, on a sing
 
 ```json
 {
-  "tagOwners": { "tag:agent": ["autogroup:admin"], "tag:ci": ["autogroup:admin"] },
+  "tagOwners": {
+    "tag:agent": ["autogroup:admin", "tag:agent"],
+    "tag:ci":    ["autogroup:admin", "tag:ci"]
+  },
   "acls": [ { "action": "accept", "src": ["tag:ci"], "dst": ["tag:agent:443"] } ],
   "ssh": []
 }
 ```
+
+:::caution[Each tag must own itself]
+Note the tags appear in **their own** `tagOwners` list (`tag:agent` owns `tag:agent`). An OAuth
+client may only register a device with — or mint an auth key for — a tag that is *owned by one of
+the tags the client carries*. Without self-ownership, `init server` fails with
+`requested tags … are invalid or not permitted` (and the agent can't register). `autogroup:admin`
+stays so you can still assign the tags by hand.
+:::
 
 ### 2. Create the OAuth client (with those tags)
 

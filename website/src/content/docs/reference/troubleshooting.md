@@ -11,7 +11,8 @@ Every failure carries a stable `code` plus a `hint`. The raw detail (compose out
 | Symptom | What to check |
 |---------|---------------|
 | `systemctl restart statio-agent` → `Unit statio-agent.service not found` | The agent isn't set up on this server yet — installing the binary doesn't create the service. Run `sudo statio init server` (it writes the systemd unit), then `sudo systemctl enable --now statio-agent`. |
-| Agent won't start (`no tailnet address`) | The Tailscale OAuth client (scopes `auth_keys`+`devices`, owns `tag:agent`+`tag:ci`), and that the node is approved. |
+| `init server` → `requested tags … are invalid or not permitted` (and the agent fails to start) | The tags aren't self-owned. In `tagOwners`, each tag must list **itself** (`"tag:ci": ["autogroup:admin", "tag:ci"]`) — an OAuth client may only mint a key for, or register a device with, a tag owned by a tag it carries. Fix the ACL and re-run `sudo statio init server`. |
+| Agent won't start (`no tailnet address`) | The Tailscale OAuth client (scopes `auth_keys`+`devices:core`, owns `tag:agent`+`tag:ci`), that the tags are self-owned in `tagOwners`, and that the node is approved. |
 | Deploy `403` `[audience]` | The payload targets another server: check the Action's `target`. |
 | Deploy `403` `[no_signature]` / `[identity_mismatch]` | Missing bundle, or the signing identity doesn't match the app's signer (owner/repo/workflow/branch from `statio app add`). |
 | Deploy `409` `[replay_seq]` or `[expired]` | Stale/reused payload: re-run the deploy from CI. |
