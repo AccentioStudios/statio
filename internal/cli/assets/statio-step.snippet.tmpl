@@ -1,4 +1,4 @@
-# ── statio: agregá esto a tu workflow de GitHub Actions ──
+# ── statio: agrega esto a tu workflow de GitHub Actions ──
 
 # 1) Tu job necesita estos permisos (a nivel job o workflow):
 #      permissions:
@@ -6,7 +6,7 @@
 #        packages: write   # push a GHCR
 #        contents: read
 
-# 2) Después de buildear y pushear tu imagen, firmala (si tu workflow aún no lo hace):
+# 2) Después de construir y publicar tu imagen, fírmala (si tu workflow aún no lo hace):
 - uses: sigstore/cosign-installer@v3
 - run: cosign sign --yes {{.Image}}@${{ steps.build.outputs.digest }}
 

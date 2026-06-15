@@ -111,9 +111,9 @@ func newInitServerCmd() *cobra.Command {
 				}
 				sectionTitle("Identidad de firma (cosign)")
 				info("Define QUÉ workflow de GitHub puede desplegar. Owner = tu usuario u organización (es lo mismo).")
-				info("Tip: corré 'statio init repo' en tu repo para ver tu identidad exacta y pegarla acá.")
+				info("Tip: ejecuta 'statio init repo' en tu repo para ver tu identidad exacta y pegarla aquí.")
 				if err := runForm(
-					inputField("Repositorio de GitHub", "owner/repo o la URL. Ej: accentiostudios/api (org) o tu-usuario/mi-api (cuenta personal). Podés pegar la URL del repo.", "accentiostudios/api", &repoInput, true),
+					inputField("Repositorio de GitHub", "owner/repo o la URL. Ej: accentiostudios/api (org) o tu-usuario/mi-api (cuenta personal). Puedes pegar la URL del repo.", "accentiostudios/api", &repoInput, true),
 					inputField("Archivo del workflow", "El archivo en .github/workflows/ que despliega", "deploy.yml", &wf, true),
 					inputField("Branch", "La rama autorizada a desplegar (solo esa rama deploya)", "main", &branch, true),
 				); err != nil {
@@ -121,7 +121,7 @@ func newInitServerCmd() *cobra.Command {
 				}
 				owner, repo, err := parseOwnerRepo(repoInput)
 				if err != nil {
-					return fmt.Errorf("repositorio inválido (%v) — usá owner/repo o la URL, sin espacios", err)
+					return fmt.Errorf("repositorio inválido (%v) — usa owner/repo o la URL, sin espacios", err)
 				}
 				identity = buildIdentity(owner, repo, trimmed(wf), trimmed(branch))
 
@@ -162,12 +162,13 @@ func newInitServerCmd() *cobra.Command {
 			}
 			okLine("Escrito: %s, /etc/statio/secrets/oauth, y la unit de systemd", configPath)
 			sectionTitle("Próximos pasos")
+			info("Todos los asistentes son interactivos: ejecútalos sin flags y te van guiando.")
 			codeBlock(
 				"systemctl daemon-reload && systemctl enable --now statio-agent",
-				"statio init integrations              # NPMplus + Cloudflare + IP pública (opcional)",
-				"statio enable <svc> --image <repo>    # acepta el servicio y fija sus anclas",
-				"statio init repo --target "+hostname+".<tailnet>.ts.net --service <svc> --image <repo>",
+				"sudo statio enable            # acepta el servicio y fija sus anclas (asistente)",
+				"sudo statio init integrations # NPMplus + Cloudflare + IP pública (asistente, opcional)",
 			)
+			info("Luego, en tu repo (en tu máquina): statio init repo   # asistente interactivo")
 			return nil
 		},
 	}
@@ -310,8 +311,23 @@ func newInitRepoCmd() *cobra.Command {
 		Use:   "repo",
 		Short: "Prepara tu repo para statio (statio.yaml + cómo llamar al Action) — se corre DENTRO del repo",
 		RunE: func(c *cobra.Command, _ []string) error {
+			// Auto-detect owner/repo up front (local git read; works for private repos)
+			// so the wizard comes prefilled and we can print the exact signing identity.
+			owner, repo, repoOK := detectOwnerRepo()
+			if repoOK {
+				if service == "" {
+					service = repo
+				}
+				if image == "" {
+					image = "ghcr.io/" + owner + "/" + repo
+				}
+			}
+
 			if interactive() && (target == "" || service == "" || image == "") {
-				banner("statio · init repo", "Corre DENTRO del repo de tu proyecto (no en el servidor)")
+				banner("statio · init repo", "Asistente interactivo — se ejecuta DENTRO del repo de tu proyecto (no en el servidor)")
+				if repoOK {
+					info("Repo detectado: %s/%s — rellené los valores por defecto; solo confirma o edita.", owner, repo)
+				}
 				if err := runForm(
 					inputField("Dirección del servidor (Tailscale)", "El nombre que le pusiste al agente + .<tu-tailnet>.ts.net. Ej: statio.tu-org.ts.net", "statio.<tu-tailnet>.ts.net", &target, true),
 					inputField("Service", "Nombre del servicio (debe estar habilitado en el agente con 'statio enable')", "api", &service, true),
@@ -332,31 +348,32 @@ func newInitRepoCmd() *cobra.Command {
 				if err := os.WriteFile(statioOut, py, 0o644); err != nil {
 					return err
 				}
-				okLine("Generado %s (editá los servicios/env de tu app)", statioOut)
+				okLine("Generado %s (edita los servicios/env de tu app)", statioOut)
 			} else {
 				info("%s ya existe; no se tocó", statioOut)
 			}
 
-			// 2. Auto-detect owner/repo from the git remote → print the exact cosign identity
-			//    to paste on the server. Local git read, so it works for private repos too.
-			if owner, repo, ok := detectOwnerRepo(); ok {
+			// 2. Print the exact cosign identity to paste on the server, from the repo
+			//    detected above. Local git read, so it works for private repos too.
+			if repoOK {
 				ident := buildIdentity(owner, repo, workflow, branch)
-				sectionTitle("Identidad de firma — pegá esto EN EL SERVIDOR 🖥️")
+				sectionTitle("Identidad de firma — pega esto EN EL SERVIDOR 🖥️")
 				info("Detecté tu repo: %s/%s  (rama %s, workflow %s)", owner, repo, branch, workflow)
 				info("Identidad cosign: %s", ident)
+				info("En el asistente de 'statio init server', en 'Repositorio de GitHub' ingresa: %s/%s", owner, repo)
+				info("(o en modo no-interactivo:)")
 				codeBlock("statio init server --hostname <nombre> --repo " + owner + "/" + repo + " --branch " + branch + " --ts-oauth-secret-stdin")
-				info("(o en el wizard del server, en 'Repositorio de GitHub' ingresá: %s/%s)", owner, repo)
 			} else {
-				info("No pude detectar el repo desde git (¿hay un remote 'origin'?). En el server ingresá tu owner/repo a mano.")
+				info("No pude detectar el repo desde git (¿hay un remote 'origin'?). En el server ingresa tu owner/repo a mano.")
 			}
 
 			// 3. Workflow: never modify an existing one. Detect + adapt.
 			existing := detectWorkflows()
 			switch {
 			case len(existing) > 0:
-				sectionTitle("Ya tenés CI — agregá statio como un step 💻")
+				sectionTitle("Ya tienes CI — agrega statio como un step 💻")
 				info("Detecté: %s", strings.Join(existing, ", "))
-				info("statio NO toca tu workflow. Agregá este step donde buildeás y firmás tu imagen:")
+				info("statio NO toca tu workflow. Agrega este step donde construyes y firmas tu imagen:")
 				printSnippet(target, service, image, actionRef)
 			default:
 				gen := createWorkflow
@@ -369,7 +386,7 @@ func newInitRepoCmd() *cobra.Command {
 				}
 				if gen {
 					if _, err := os.Stat(out); err == nil {
-						info("%s ya existe; no se sobreescribe. Usá este step:", out)
+						info("%s ya existe; no se sobreescribe. Usa este step:", out)
 						printSnippet(target, service, image, actionRef)
 					} else {
 						yml, err := render("deploy.yml.tmpl", map[string]string{"Target": target, "Service": service, "Image": image, "ActionRef": actionRef})
@@ -385,7 +402,7 @@ func newInitRepoCmd() *cobra.Command {
 						okLine("Generado %s", out)
 					}
 				} else {
-					sectionTitle("Agregá statio a tu workflow 💻")
+					sectionTitle("Agrega statio a tu workflow 💻")
 					printSnippet(target, service, image, actionRef)
 				}
 			}

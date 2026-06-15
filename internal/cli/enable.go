@@ -25,11 +25,47 @@ func newEnableCmd() *cobra.Command {
 		maxServices        int
 	)
 	cmd := &cobra.Command{
-		Use:   "enable <service>",
+		Use:   "enable [service]",
 		Short: "Accept a service on this server and pin its anchors (ops action)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			name := args[0]
+			name := ""
+			if len(args) == 1 {
+				name = args[0]
+			}
+
+			// Interactive wizard when run without the essentials in a terminal.
+			if interactive() && (name == "" || image == "") {
+				banner("statio · enable", "Acepta un servicio en este servidor y fija sus anclas de seguridad")
+				registriesCSV := strings.Join(registries, ", ")
+				if err := runForm(
+					inputField("Nombre del servicio", "El slot que CI va a desplegar (ej. api). Letras, números, - o _", "api", &name, true),
+					inputField("Repositorio de la imagen", "El repo EXACTO de tu app; CI solo puede desplegar desde aquí (repo-equality). Ej: ghcr.io/tu-org/api", "ghcr.io/tu-org/api", &image, true),
+					inputField("Registries permitidos (dependencias)", "Separados por coma. De dónde pueden salir postgres/redis/etc.", "docker.io, ghcr.io", &registriesCSV, true),
+				); err != nil {
+					return err
+				}
+				registries = splitCSV(registriesCSV)
+
+				wantDomain, err := confirm("¿Exponer un dominio público (reverse proxy + DNS)?")
+				if err != nil {
+					return err
+				}
+				if wantDomain {
+					suffix, upstream := "", name
+					if err := runForm(
+						inputField("Sufijo de dominio permitido", "Solo se aceptan dominios bajo este sufijo (anti-hijack). Ej: example.com", "example.com", &suffix, true),
+						inputField("Upstream (contenedor destino)", "El servicio al que apunta el proxy", name, &upstream, true),
+					); err != nil {
+						return err
+					}
+					proxySuffixes, dnsSuffixes, upstreams = []string{suffix}, []string{suffix}, []string{upstream}
+				}
+			}
+
+			if name == "" {
+				return fmt.Errorf("falta el nombre del servicio (ej. statio enable api)")
+			}
 			if !validServiceName(name) {
 				return fmt.Errorf("invalid service name %q", name)
 			}
@@ -77,6 +113,16 @@ func newEnableCmd() *cobra.Command {
 	f.IntVar(&maxServices, "max-services", 10, "cap on services in a deploy")
 	f.StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
 	return cmd
+}
+
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func validServiceName(s string) bool {
