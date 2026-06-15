@@ -1,76 +1,83 @@
-# Contribuir a statio
+# Contributing to statio
 
-Gracias por querer aportar. Esta guía cubre cómo levantar el proyecto, el estilo que seguimos y cómo
-proponer cambios.
+Thanks for wanting to help. This guide covers how to get the project running, the style we follow,
+and how to propose changes.
 
-## Requisitos
+## Requirements
 
-- **Go** — la versión está en [`go.mod`](go.mod); usa esa o una más nueva.
-- **Docker** — para probar el agente localmente.
-- **git**, y opcionalmente una cuenta de **Tailscale** para pruebas end-to-end.
+- **Go** — the version is pinned in [`go.mod`](go.mod); use that or newer.
+- **Docker** — to test the agent locally.
+- **git**, and optionally a **Tailscale** account for end-to-end testing.
 
-## Levantar el proyecto
+## Build
 
 ```sh
 git clone https://github.com/accentiostudios/statio
 cd statio
-go build ./...                    # compila todo
-go build -o statio ./cmd/statio   # el binario único
+go build ./...                    # build everything
+go build -o statio ./cmd/statio   # the single binary
 ```
 
-## Antes de abrir un PR
+## Before opening a PR
 
-Ejecuta lo mismo que valida CI; todo debe quedar en verde:
+Run the same checks CI runs; everything must be green:
 
 ```sh
 go build ./...
 go vet ./...
 go test ./...
-gofmt -l .        # no debe listar ningún archivo
+gofmt -l .        # must not list any file
 ```
 
-## Estilo
+## Style
 
-- Go estándar, formateado con `gofmt`. Evita dependencias nuevas salvo que sean necesarias;
-  justifícalas en el PR.
-- Comentarios y documentación en **español neutral**.
-- Mensajes de commit en **inglés**, formato [Conventional Commits](https://www.conventionalcommits.org)
-  (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`…, con scope opcional).
+- Standard Go, formatted with `gofmt`. Avoid new dependencies unless necessary; justify them in
+  the PR.
+- Comments and documentation in **English**.
+- Commit messages in **English**, [Conventional Commits](https://www.conventionalcommits.org)
+  format (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`…, with an optional scope).
 
-## Estructura del código
+## Code layout
 
-- `cmd/statio` — entrypoint del binario.
-- `internal/` — todo el código: `cli`, `agent`, `deploy`, `compose`, `verify`, `spec`, `selfupdate`…
-- `action/` — la composite Action de GitHub que corre en CI.
-- `docs/architecture.md` — arquitectura, pipeline de deploy, contrato de wire y modelo de seguridad.
-  **Léelo antes de tocar** el agente, el verificador o el generador de compose.
+- `cmd/statio` — the binary entrypoint.
+- `internal/` — all the code: `cli`, `agent`, `deploy`, `compose`, `verify`, `spec`, `selfupdate`…
+- `action/` — the GitHub composite Action that runs in CI.
+- `docs/architecture.md` / the [Architecture docs](https://accentiostudios.github.io/statio/architecture/)
+  — architecture, deploy pipeline, wire contract and security model. **Read it before touching** the
+  agent, the verifier or the compose generator.
+- `website/` — the documentation site (Astro Starlight). See its pages under
+  `website/src/content/docs/`.
 
-## Seguridad
+## Security
 
-statio tiene un modelo de seguridad explícito (firma cosign, anclas server-side, los invariantes
-documentados en [`docs/architecture.md`](docs/architecture.md) §6). Si tu cambio toca verificación,
-parsing del payload, generación de compose o manejo de secretos, **explica en el PR cómo preserva esos
-invariantes**.
+statio has an explicit security model (cosign signing, server-side anchors, the invariants
+documented in the [Architecture docs](https://accentiostudios.github.io/statio/architecture/)). If
+your change touches verification, payload parsing, compose generation or secret handling, **explain
+in the PR how it preserves those invariants**.
 
-¿Encontraste una vulnerabilidad? No abras un issue público: usa el reporte privado de GitHub
-(**Security → Report a vulnerability**) o contacta a los maintainers en privado.
+Found a vulnerability? Don't open a public issue: use GitHub's private reporting
+(**Security → Report a vulnerability**) or contact the maintainers privately.
 
-## Proponer un cambio
+## Proposing a change
 
-1. Haz fork y crea una rama desde `main`.
-2. Commits en formato Conventional Commits.
-3. Abre un PR con una descripción clara: **qué** cambia, **por qué**, y **cómo lo probaste**.
-4. CI debe pasar.
+1. Fork and create a branch off `main`.
+2. Use Conventional Commits.
+3. Open a PR with a clear description: **what** changes, **why**, and **how you tested it**.
+4. CI must pass.
 
 ## Releases (maintainers)
 
-Los releases se cortan con un tag — un push a `main` no publica nada:
+Releases are cut with a tag — pushing to `main` publishes nothing:
 
 ```sh
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Eso dispara GoReleaser ([`.github/workflows/release.yml`](.github/workflows/release.yml)): compila los
-binarios linux/darwin × amd64/arm64, los firma con cosign keyless y publica el GitHub Release con
-`checksums.txt`. `install.sh` y `statio upgrade` consumen ese release.
+That triggers GoReleaser ([`.github/workflows/release.yml`](.github/workflows/release.yml)): it
+builds the linux/darwin × amd64/arm64 binaries, signs them with cosign keyless, and publishes the
+GitHub Release with `checksums.txt`. `install.sh` and `statio upgrade` consume that release.
+
+The documentation site is published separately by
+[`.github/workflows/docs.yml`](.github/workflows/docs.yml) on every push to `main` that touches
+`website/`.
