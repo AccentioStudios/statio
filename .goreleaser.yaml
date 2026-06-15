@@ -1,5 +1,5 @@
 # GoReleaser: produce los binarios, checksums y firmas cosign que install.sh y la Action
-# (action/install-statio.sh) descargan desde GitHub Releases. Dispara con: git tag vX.Y.Z && git statio --tags
+# (action/install-statio.sh) descargan desde GitHub Releases. Dispara con: git tag vX.Y.Z && git push --tags
 version: 2
 
 project_name: statio
