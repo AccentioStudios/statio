@@ -24,9 +24,18 @@ a full Tailscale node (userspace WireGuard). On the server you install **no `tai
 `/var/lib/statio/tsnet`. Containers on the host are not on the tailnet (they don't need to be: the
 agent talks to NPMplus over localhost and pulls images over normal HTTPS).
 
-**Two transports:** the **signal + config** travels over the tailnet (private, end-to-end encrypted by
-WireGuard); the **image** travels over normal HTTPS to/from GHCR. New calls (Cloudflare, NPMplus) are
-**outbound** — they add no inbound surface.
+**What Tailscale is for — and isn't.** Tailscale carries **only the deploy signal**: CI (an
+ephemeral `tag:ci` node) reaches the agent privately to send the signed payload. It replaces SSH and
+means the agent has no public inbound port. statio does **not** serve your app over Tailscale — there
+is no `tailscale serve`. Your app's **public traffic** takes a separate, ordinary path: it hits a
+reverse proxy (NPMplus) on the server's public `80/443`, which forwards to the container on loopback
+(`127.0.0.1`). So three paths exist, only one of them being Tailscale:
+
+| Path | Transport | Direction |
+|------|-----------|-----------|
+| Deploy signal (CI → agent) | **Tailscale** (private, WireGuard) | inbound to the agent, tailnet-only |
+| Image pull (agent → GHCR) | normal HTTPS | outbound |
+| Your app's traffic (users → app) | normal HTTP/HTTPS via NPMplus on `80/443` | inbound to the proxy |
 
 ## 2. The four hard constraints
 

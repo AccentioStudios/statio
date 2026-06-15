@@ -22,6 +22,10 @@ account (the free plan is enough).
 
 ## Step 0 · Tailscale (once, on the web)
 
+Tailscale is the **private channel CI uses to reach the agent** — it replaces SSH, so the agent
+never opens a public deploy port. It is **not** how your app is served (that's your reverse proxy on
+`80/443`).
+
 In the [Tailscale admin console](https://login.tailscale.com/admin/settings/oauth) create **two
 OAuth clients**: one tagged `tag:agent` (for the server) and one tagged `tag:ci` (for CI). Paste
 this ACL under *Access controls*:

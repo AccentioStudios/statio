@@ -19,16 +19,22 @@
 ## Introduction
 
 **Statio** ships your Docker image to your own server with a `git push`. Your GitHub Actions
-workflow builds and signs the image; a lightweight **agent** on your server —connected over a
-private Tailscale network— receives it, verifies the signature, and recreates the container.
+workflow builds and signs the image; a lightweight **agent** on your server receives it, verifies
+the signature, and recreates the container.
 
 ```
-git push ─▶ CI: build + sign ─▶ statio/action ─▶ agent on your server ─▶ deployed
+git push ─▶ CI: build + sign ─▶ agent on your server ─▶ deployed
 ```
+
+> **Tailscale is only the deploy channel.** CI reaches the agent over a private Tailscale network —
+> this replaces SSH, so the agent opens no inbound deploy port. statio does **not** serve your app
+> over Tailscale (no `tailscale serve`): public traffic goes the normal way, through a reverse proxy
+> (NPMplus) on `80/443`.
 
 What you get:
 
-- **No SSH and no open ports.** The server exposes nothing to the internet.
+- **No SSH and no deploy port.** The deploy channel rides a private Tailscale network; the agent
+  isn't reachable from the internet.
 - **Only what your CI signed gets deployed.** Cosign keyless verification before anything runs.
 - **Domain and DNS in the same deploy.** Reverse proxy (NPMplus) and Cloudflare, optional.
 - **Just another GitHub Actions step.** No brittle deploy scripts.

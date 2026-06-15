@@ -3,7 +3,7 @@ title: Statio
 description: Deploy to your own server with a git push — no SSH, no open ports.
 template: splash
 hero:
-  tagline: Deploy to your own server with a git push — no SSH, no open ports. Cosign-verified, over a private Tailscale network.
+  tagline: Deploy to your own server with a git push — no SSH, no inbound deploy port. Signed deploys delivered over a private Tailscale network.
   image:
     dark: ../../assets/statio-dark-horizontal.svg
     light: ../../assets/statio-light-horizontal.svg
@@ -23,16 +23,24 @@ import { Card, CardGrid, Code } from '@astrojs/starlight/components';
 ## What is Statio?
 
 **Statio** ships your Docker image to your own server with a `git push`. Your GitHub Actions
-workflow builds and signs the image; a lightweight **agent** on your server —connected over a
-private Tailscale network— receives it, verifies the signature, and recreates the container.
+workflow builds and signs the image; a lightweight **agent** on your server receives it, verifies
+the signature, and recreates the container.
 
 ```
 git push ─▶ CI: build + sign ─▶ statio/action ─▶ agent on your server ─▶ deployed
 ```
 
+:::note[Tailscale is only the deploy channel]
+CI reaches the agent over a private **Tailscale** network — this replaces SSH and means the agent
+opens **no inbound deploy port**. statio does **not** serve your app over Tailscale (no
+`tailscale serve`): public traffic to your app goes the normal way, through a reverse proxy
+(NPMplus) on `80/443`, exactly as it would without statio.
+:::
+
 <CardGrid>
-  <Card title="No SSH, no open ports" icon="approve-check">
-    The server exposes nothing to the internet. Traffic flows over a private Tailscale network.
+  <Card title="No SSH, no deploy port" icon="approve-check">
+    CI talks to the agent over a private Tailscale network — no SSH, no inbound deploy port. (Your
+    app is still served by your reverse proxy on 80/443.)
   </Card>
   <Card title="Signed deploys only" icon="seti:lock">
     Only what your CI signed gets deployed — cosign keyless verification before anything runs.
