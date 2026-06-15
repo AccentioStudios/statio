@@ -422,7 +422,7 @@ func newInitRepoCmd() *cobra.Command {
 	f.StringVar(&target, "target", "", "agent MagicDNS host (no-interactivo)")
 	f.StringVar(&service, "service", "", "service name (no-interactivo)")
 	f.StringVar(&image, "image", "", "image repository (no-interactivo)")
-	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio/action@v1", "the statio composite action ref")
+	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio@v1", "the statio Action ref (Marketplace)")
 	f.StringVar(&out, "out", ".github/workflows/deploy.yml", "ruta del workflow (con --create-workflow)")
 	f.StringVar(&statioOut, "statio-out", "statio.yaml", "statio.yaml starter output path")
 	f.BoolVar(&createWorkflow, "create-workflow", false, "generar un deploy.yml starter (solo si no existe ninguno)")

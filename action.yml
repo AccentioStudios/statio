@@ -1,6 +1,9 @@
-name: "statio deploy"
-description: "Deploy a signed image to a self-hosted server over Tailscale — no SSH, no public port."
+name: "Statio Deploy"
+description: "Deploy a signed image to your own server over Tailscale — no SSH, no public port."
 author: "accentiostudios"
+branding:
+  icon: "upload-cloud"
+  color: "purple"
 
 inputs:
   target:
@@ -30,7 +33,7 @@ inputs:
     description: "Tailscale OAuth client secret"
     required: true
   statio-version:
-    description: "Version of the statio binary to download"
+    description: "Version of the statio binary to download (a bare major like v1, or an exact vX.Y.Z, or latest)"
     required: false
     default: "v1"
   timeout:
@@ -50,7 +53,7 @@ runs:
   steps:
     - name: Install statio binary
       shell: bash
-      run: ${{ github.action_path }}/install-statio.sh "${{ inputs.statio-version }}"
+      run: ${{ github.action_path }}/action/install-statio.sh "${{ inputs.statio-version }}"
     - name: Install cosign
       uses: sigstore/cosign-installer@v3
     - name: Join tailnet (ephemeral tag:ci node)
@@ -73,4 +76,4 @@ runs:
         STATIO_DEPLOY_SEQ: ${{ github.run_number }}
         STATIO_TIMEOUT: ${{ inputs.timeout }}
         STATIO_STRICT: ${{ inputs.strict }}
-      run: ${{ github.action_path }}/deploy.sh
+      run: ${{ github.action_path }}/action/deploy.sh

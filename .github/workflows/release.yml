@@ -26,3 +26,23 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Keep the moving `v1` major tag pointing at the latest STABLE release, so
+  # `uses: accentiostudios/statio@v1` (and the binary it downloads) always tracks the
+  # newest 1.x. Skipped for prereleases (tags with a hyphen, e.g. v1.2.0-rc1).
+  major-tag:
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Move the v1 major tag to this release
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in
+            *-*) echo "prerelease $TAG; leaving v1 untouched"; exit 0 ;;
+          esac
+          git tag -f v1
+          git push -f origin v1
+          echo "Moved v1 -> $TAG"

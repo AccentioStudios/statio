@@ -15,6 +15,18 @@ case "$arch" in
   *) echo "unsupported arch: $arch" >&2; exit 1 ;;
 esac
 
+# A bare major (v1) or "latest" maps to the newest published release: the moving v1
+# action tag pins the action code; the binary tracks the latest matching release. An exact
+# vX.Y.Z is used verbatim. Resolve the tag by following the /releases/latest redirect.
+if [ "$VERSION" = "latest" ] || echo "$VERSION" | grep -Eq '^v[0-9]+$'; then
+  resolved="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+    "https://github.com/${REPO}/releases/latest" | sed -n 's#.*/releases/tag/##p')"
+  if [ -n "$resolved" ]; then
+    echo "Resolved ${VERSION} -> ${resolved}"
+    VERSION="$resolved"
+  fi
+fi
+
 asset="statio_${os}_${arch}"
 base="https://github.com/${REPO}/releases/download/${VERSION}"
 bindir="${RUNNER_TEMP:-/tmp}/statio-bin"
