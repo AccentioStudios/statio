@@ -32,6 +32,7 @@ func banner(title, subtitle string) {
 
 func okLine(format string, a ...any)   { fmt.Println(cOK.Render("✓ ") + fmt.Sprintf(format, a...)) }
 func warnLine(format string, a ...any) { fmt.Println(cWarn.Render("! ") + fmt.Sprintf(format, a...)) }
+func failLine(format string, a ...any) { fmt.Println(cErr.Render("✗ ") + fmt.Sprintf(format, a...)) }
 func info(format string, a ...any)     { fmt.Println(cFaint.Render(fmt.Sprintf(format, a...))) }
 
 func sectionTitle(s string) {

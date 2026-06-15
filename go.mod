@@ -10,6 +10,7 @@ require (
 	github.com/sigstore/cosign/v3 v3.1.1
 	github.com/sigstore/sigstore-go v1.2.1
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/mod v0.36.0
 	golang.org/x/term v0.44.0
 	gopkg.in/yaml.v3 v3.0.1
 	tailscale.com v1.100.0
@@ -151,7 +152,6 @@ require (
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect

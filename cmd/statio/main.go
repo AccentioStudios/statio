@@ -15,7 +15,7 @@ var version = "dev"
 
 func main() {
 	if err := cli.Execute(version); err != nil {
-		fmt.Fprintln(os.Stderr, "push:", err)
+		fmt.Fprintln(os.Stderr, "statio:", err)
 		os.Exit(1)
 	}
 }
