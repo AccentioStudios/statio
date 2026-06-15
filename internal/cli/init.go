@@ -48,7 +48,7 @@ func inputField(title, desc, placeholder string, v *string, required bool) huh.F
 	if required {
 		in = in.Validate(func(s string) error {
 			if strings.TrimSpace(s) == "" {
-				return fmt.Errorf("requerido")
+				return fmt.Errorf("required")
 			}
 			return nil
 		})
@@ -60,7 +60,7 @@ func passwordField(title, desc string, v *string) huh.Field {
 	return huh.NewInput().Title(title).Description(desc).EchoMode(huh.EchoModePassword).Value(v).
 		Validate(func(s string) error {
 			if s == "" {
-				return fmt.Errorf("requerido")
+				return fmt.Errorf("required")
 			}
 			return nil
 		})
@@ -88,6 +88,7 @@ func newInitServerCmd() *cobra.Command {
 		Long: "Sets up the agent on THIS machine. It does not ask for any repo — you authorize each\n" +
 			"app later with `statio app add`. It takes one bootstrap Tailscale OAuth client and uses\n" +
 			"it to join the tailnet and to mint the shared tag:ci auth key CI uses to reach the agent.",
+		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if issuer == "" {
 				issuer = "https://token.actions.githubusercontent.com"
@@ -95,43 +96,52 @@ func newInitServerCmd() *cobra.Command {
 			var clientSecret string
 
 			if interactive() && (hostname == "" || clientID == "") {
-				banner("statio · init server", "Configura el agente de deploy en esta máquina")
+				banner("statio · init server", "Set up the deploy agent on this machine")
 				if hostname == "" {
 					hostname = "statio"
 				}
 				if err := runForm(
-					inputField("Nombre de este servidor",
-						"Tailscale le dará la dirección <nombre>.<tu-tailnet>.ts.net, y CI usa esa dirección para enviarle el deploy. Con un solo servidor, 'statio' está bien.",
+					inputField("Name of this server",
+						"Tailscale will give it the address <name>.<your-tailnet>.ts.net, and CI uses that address to send the deploy. With a single server, 'statio' is fine.",
 						"statio", &hostname, true),
 				); err != nil {
 					return err
 				}
-				sectionTitle("Credencial de Tailscale (una sola vez)")
-				info("Crea UN OAuth client en Tailscale con scopes 'auth_keys' + 'devices', dueño de los")
-				info("tags tag:agent y tag:ci. El agente lo usa para unirse a la tailnet y para crear la")
-				info("auth key que CI usa para llegar aquí. No vuelves a tocar la consola de Tailscale.")
-				info("https://login.tailscale.com/admin/settings/oauth")
+				sectionTitle("First, set up Tailscale (once, on the web)")
+				info("CI reaches this server over Tailscale instead of SSH. Do two steps in the admin")
+				info("console, in order — the OAuth client can only own tags that already exist:")
+				info("")
+				info("1. Access controls — define the tags. Paste this and save:")
+				codeBlock(`{"tagOwners":{"tag:agent":["autogroup:admin"],"tag:ci":["autogroup:admin"]},"acls":[{"action":"accept","src":["tag:ci"],"dst":["tag:agent:443"]}]}`)
+				info("")
+				info("2. Settings -> OAuth clients -> Generate (newer consoles: Trust credentials -> New).")
+				info("   Choose 'Custom scopes' and enable, both Write:")
+				info("     - auth_keys     ->  Keys -> Auth Keys    (lets THIS server mint the CI key)")
+				info("     - devices:core  ->  Devices -> Core      (lets the agent register as a node)")
+				info("   Enabling Devices -> Core makes Tailscale ask for tags: pick tag:agent and tag:ci.")
+				info("   Then copy the client id + secret. https://login.tailscale.com/admin/settings/oauth")
+				info("")
 				if err := runForm(
-					inputField("OAuth client ID", "Identificador del client (no es secreto).", "k123ABC...", &clientID, true),
-					passwordField("OAuth client secret", "Empieza con tskey-client-…; se guarda 0600 root, nunca se imprime", &clientSecret),
+					inputField("OAuth client ID", "Client identifier (not secret).", "k123ABC...", &clientID, true),
+					passwordField("OAuth client secret", "Starts with tskey-client-…; stored 0600 root, never printed", &clientSecret),
 				); err != nil {
 					return err
 				}
 
-				sectionTitle("Resumen")
+				sectionTitle("Summary")
 				info("hostname: %s", hostname)
 				info("config:   %s", configPath)
-				ok, err := confirm("¿Escribir la configuración + unit de systemd y crear la auth key de CI?")
+				ok, err := confirm("Write the config + systemd unit and create the CI auth key?")
 				if err != nil {
 					return err
 				}
 				if !ok {
-					warnLine("Cancelado. No se escribió nada.")
+					warnLine("Cancelled. Nothing was written.")
 					return nil
 				}
 			} else {
 				if hostname == "" || clientID == "" {
-					return fmt.Errorf("modo no-interactivo: --hostname y --ts-oauth-client-id (+ el secret por stdin/file) son requeridos")
+					return fmt.Errorf("non-interactive mode: --hostname and --ts-oauth-client-id (+ the secret via stdin/file) are required")
 				}
 				b, err := readSecret(oauthStdin, oauthSecretFile, "--ts-oauth-secret")
 				if err != nil {
@@ -143,40 +153,53 @@ func newInitServerCmd() *cobra.Command {
 			if err := writeServerFiles(hostname, issuer, configPath, clientID, clientSecret); err != nil {
 				return err
 			}
-			okLine("Escrito: %s, /etc/statio/secrets/oauth.json y la unit de systemd", configPath)
+			okLine("Wrote: %s, /etc/statio/secrets/oauth.json and the systemd unit", configPath)
+
+			// We wrote the unit and run as root — bring the agent up ourselves instead of
+			// telling the user to run systemctl by hand.
+			if systemctlAvailable() {
+				if err := startAgent(); err != nil {
+					warnLine("could not start the agent automatically: %v", err)
+					codeBlock("sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent")
+				} else {
+					okLine("Agent enabled and started (statio-agent)")
+				}
+			} else {
+				info("Start the agent on the server (systemd):")
+				codeBlock("sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent")
+			}
 
 			// The server mints the shared tag:ci auth key CI uses to reach the agent.
-			sectionTitle("Auth key de CI (la crea el servidor)")
+			sectionTitle("CI auth key (minted by the server)")
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			key, err := tailscale.New(tailnetAPI).MintCIKey(ctx, clientID, clientSecret, keyDays)
 			if err != nil {
-				warnLine("No pude crear la auth key automáticamente: %v", err)
-				info("Verifica que el OAuth client tenga scope 'auth_keys' y sea dueño de tag:ci, y reintenta.")
+				warnLine("Could not create the auth key automatically: %v", err)
+				info("Check that the OAuth client has the 'auth_keys' scope and owns tag:ci, then retry.")
 			} else {
-				info("Auth key tag:ci creada (reutilizable, efímera, válida %d días). Ponla en GitHub:", keyDays)
+				info("Auth key tag:ci created (reusable, ephemeral, valid for %d days). Put it in GitHub:", keyDays)
 				codeBlock("gh secret set STATIO_TS_AUTHKEY --body '" + key + "'")
-				info("La misma key sirve para TODOS tus repos. Rótala re-ejecutando 'statio init server'.")
+				info("The same key works for ALL your repos. Rotate it by re-running 'statio init server'.")
 			}
 
-			sectionTitle("Próximos pasos")
+			sectionTitle("Next steps")
 			codeBlock(
-				"systemctl daemon-reload && systemctl enable --now statio-agent",
-				"sudo statio app add <nombre>   # acepta una app y fija su repo firmante (uno por app)",
-				"sudo statio init integrations  # NPMplus + Cloudflare + IP pública (opcional)",
+				"sudo statio app add <name>     # accept an app and pin its signing repo (one per app)",
+				"sudo statio init integrations  # NPMplus + Cloudflare + public IP (optional)",
 			)
 			return nil
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&hostname, "hostname", "", "tsnet MagicDNS hostname (no-interactivo)")
-	f.StringVar(&clientID, "ts-oauth-client-id", "", "Tailscale OAuth client id (no-interactivo)")
-	f.BoolVar(&oauthStdin, "ts-oauth-secret-stdin", false, "leer el OAuth client secret de stdin (no-interactivo)")
-	f.StringVar(&oauthSecretFile, "ts-oauth-secret-file", "", "leer el OAuth client secret de un archivo (no-interactivo)")
+	f.StringVar(&hostname, "hostname", "", "tsnet MagicDNS hostname (non-interactive)")
+	f.StringVar(&clientID, "ts-oauth-client-id", "", "Tailscale OAuth client id (non-interactive)")
+	f.BoolVar(&oauthStdin, "ts-oauth-secret-stdin", false, "read the OAuth client secret from stdin (non-interactive)")
+	f.StringVar(&oauthSecretFile, "ts-oauth-secret-file", "", "read the OAuth client secret from a file (non-interactive)")
 	f.StringVar(&issuer, "issuer", "", "cosign OIDC issuer")
 	f.StringVar(&configPath, "config", "/etc/statio/config.yaml", "config output path")
-	f.IntVar(&keyDays, "ci-key-days", 90, "validez (días) de la auth key tag:ci minteada")
-	f.StringVar(&tailnetAPI, "tailscale-api", "", "base de la API de Tailscale (para pruebas; default público)")
+	f.IntVar(&keyDays, "ci-key-days", 90, "validity (days) of the minted tag:ci auth key")
+	f.StringVar(&tailnetAPI, "tailscale-api", "", "Tailscale API base (for testing; defaults to public)")
 	return cmd
 }
 
@@ -222,24 +245,25 @@ log_level: info
 
 func newInitIntegrationsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "integrations",
-		Short: "Configure NPMplus + Cloudflare + the pinned public IP (interactive)",
+		Use:     "integrations",
+		Short:   "Configure NPMplus + Cloudflare + the pinned public IP (interactive)",
+		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if !interactive() {
-				return fmt.Errorf("init integrations es interactivo; ejecútalo en una terminal")
+				return fmt.Errorf("init integrations is interactive; run it in a terminal")
 			}
-			banner("statio · init integrations", "Reverse proxy (NPMplus) y DNS (Cloudflare)")
+			banner("statio · init integrations", "Reverse proxy (NPMplus) and DNS (Cloudflare)")
 
-			doNPM, err := confirm("¿Configurar NPMplus (reverse proxy)?")
+			doNPM, err := confirm("Set up NPMplus (reverse proxy)?")
 			if err != nil {
 				return err
 			}
 			if doNPM {
 				url, identity, secret := "http://npmplus:81", "statio-agent", ""
 				if err := runForm(
-					inputField("NPMplus base URL", "Localhost o nombre de red docker", "http://npmplus:81", &url, true),
-					inputField("NPMplus API identity", "Usuario dedicado no-admin", "statio-agent", &identity, true),
-					passwordField("NPMplus API secret", "Se guarda 0600 root", &secret),
+					inputField("NPMplus base URL", "Localhost or docker network name", "http://npmplus:81", &url, true),
+					inputField("NPMplus API identity", "Dedicated non-admin user", "statio-agent", &identity, true),
+					passwordField("NPMplus API secret", "Stored 0600 root", &secret),
 				); err != nil {
 					return err
 				}
@@ -247,22 +271,22 @@ func newInitIntegrationsCmd() *cobra.Command {
 					fmt.Sprintf(`{"base_url":%q,"identity":%q,"secret":%q}`, url, identity, secret)); err != nil {
 					return err
 				}
-				okLine("NPMplus configurado")
-				sectionTitle("Agrega a /etc/statio/config.yaml")
+				okLine("NPMplus configured")
+				sectionTitle("Add to /etc/statio/config.yaml")
 				codeBlock("npmplus:", "  base_url: "+url, "  credentials_file: /etc/statio/secrets/npmplus.json")
 			}
 
-			doCF, err := confirm("¿Configurar Cloudflare (DNS)?")
+			doCF, err := confirm("Set up Cloudflare (DNS)?")
 			if err != nil {
 				return err
 			}
 			if doCF {
 				zoneID, apex, ip, token := "", "", "", ""
 				if err := runForm(
-					inputField("Cloudflare Zone ID", "Dashboard → tu zona → Overview", "", &zoneID, true),
-					inputField("Zone apex", "El dominio raíz (ej. example.com)", "example.com", &apex, true),
-					inputField("IP pública del servidor", "A donde apuntarán los registros A", "203.0.113.10", &ip, true),
-					passwordField("Cloudflare API token", "Scope Zone.DNS:Edit en esta zona; 0600 root", &token),
+					inputField("Cloudflare Zone ID", "Dashboard → your zone → Overview", "", &zoneID, true),
+					inputField("Zone apex", "The root domain (e.g. example.com)", "example.com", &apex, true),
+					inputField("Server public IP", "Where the A records will point", "203.0.113.10", &ip, true),
+					passwordField("Cloudflare API token", "Zone.DNS:Edit scope on this zone; 0600 root", &token),
 				); err != nil {
 					return err
 				}
@@ -270,8 +294,8 @@ func newInitIntegrationsCmd() *cobra.Command {
 					fmt.Sprintf(`{"api_token":%q,"zone_id":%q}`, token, zoneID)); err != nil {
 					return err
 				}
-				okLine("Cloudflare configurado")
-				sectionTitle("Agrega a /etc/statio/config.yaml")
+				okLine("Cloudflare configured")
+				sectionTitle("Add to /etc/statio/config.yaml")
 				codeBlock(
 					"cloudflare:",
 					"  credentials_file: /etc/statio/secrets/cloudflare.json",
@@ -283,7 +307,7 @@ func newInitIntegrationsCmd() *cobra.Command {
 				)
 			}
 			if !doNPM && !doCF {
-				warnLine("Nada que configurar.")
+				warnLine("Nothing to configure.")
 			}
 			return nil
 		},
@@ -305,7 +329,7 @@ func newInitRepoCmd() *cobra.Command {
 	var createWorkflow bool
 	cmd := &cobra.Command{
 		Use:   "repo",
-		Short: "Prepara tu repo para statio (statio.yaml + cómo llamar al Action) — se corre DENTRO del repo",
+		Short: "Prepare your repo for statio (statio.yaml + how to call the Action) — run INSIDE the repo",
 		RunE: func(c *cobra.Command, _ []string) error {
 			// Auto-detect owner/repo up front (local git read; works for private repos)
 			// so the wizard comes prefilled and we can print the exact signing identity.
@@ -320,19 +344,19 @@ func newInitRepoCmd() *cobra.Command {
 			}
 
 			if interactive() && (target == "" || service == "" || image == "") {
-				banner("statio · init repo", "Asistente interactivo — se ejecuta DENTRO del repo de tu proyecto (no en el servidor)")
+				banner("statio · init repo", "Interactive wizard — runs INSIDE your project's repo (not on the server)")
 				if repoOK {
-					info("Repo detectado: %s/%s — rellené los valores por defecto; solo confirma o edita.", owner, repo)
+					info("Repo detected: %s/%s — I filled in the defaults; just confirm or edit.", owner, repo)
 				}
 				if err := runForm(
-					inputField("Dirección del servidor (Tailscale)", "El nombre que le pusiste al agente + .<tu-tailnet>.ts.net. Ej: statio.tu-org.ts.net", "statio.<tu-tailnet>.ts.net", &target, true),
-					inputField("Service", "Nombre del servicio (debe estar habilitado en el agente con 'statio enable')", "api", &service, true),
-					inputField("Image repository", "Repo de tu imagen (debe coincidir con 'statio enable --image')", "ghcr.io/accentiostudios/api", &image, true),
+					inputField("Server address (Tailscale)", "The name you gave the agent + .<your-tailnet>.ts.net. E.g. statio.your-org.ts.net", "statio.<your-tailnet>.ts.net", &target, true),
+					inputField("Service", "Service name (must be enabled on the agent with 'statio enable')", "api", &service, true),
+					inputField("Image repository", "Your image repo (must match 'statio enable --image')", "ghcr.io/accentiostudios/api", &image, true),
 				); err != nil {
 					return err
 				}
 			} else if target == "" || service == "" || image == "" {
-				return fmt.Errorf("modo no-interactivo: --target, --service y --image son requeridos")
+				return fmt.Errorf("non-interactive mode: --target, --service and --image are required")
 			}
 
 			// 1. Scaffold statio.yaml (statio's own config), only if missing.
@@ -344,37 +368,37 @@ func newInitRepoCmd() *cobra.Command {
 				if err := os.WriteFile(statioOut, py, 0o644); err != nil {
 					return err
 				}
-				okLine("Generado %s (edita los servicios/env de tu app)", statioOut)
+				okLine("Generated %s (edit your app's services/env)", statioOut)
 			} else {
-				info("%s ya existe; no se tocó", statioOut)
+				info("%s already exists; left untouched", statioOut)
 			}
 
 			// 2. Print the exact cosign identity to paste on the server, from the repo
 			//    detected above. Local git read, so it works for private repos too.
 			if repoOK {
 				ident := buildIdentity(owner, repo, workflow, branch)
-				sectionTitle("Identidad de firma — pega esto EN EL SERVIDOR 🖥️")
-				info("Detecté tu repo: %s/%s  (rama %s, workflow %s)", owner, repo, branch, workflow)
-				info("Identidad cosign: %s", ident)
-				info("En el asistente de 'statio init server', en 'Repositorio de GitHub' ingresa: %s/%s", owner, repo)
-				info("(o en modo no-interactivo:)")
-				codeBlock("statio init server --hostname <nombre> --repo " + owner + "/" + repo + " --branch " + branch + " --ts-oauth-secret-stdin")
+				sectionTitle("Signing identity — paste this ON THE SERVER 🖥️")
+				info("Detected your repo: %s/%s  (branch %s, workflow %s)", owner, repo, branch, workflow)
+				info("Cosign identity: %s", ident)
+				info("In the 'statio init server' wizard, under 'GitHub repository' enter: %s/%s", owner, repo)
+				info("(or in non-interactive mode:)")
+				codeBlock("statio init server --hostname <name> --repo " + owner + "/" + repo + " --branch " + branch + " --ts-oauth-secret-stdin")
 			} else {
-				info("No pude detectar el repo desde git (¿hay un remote 'origin'?). En el server ingresa tu owner/repo a mano.")
+				info("Could not detect the repo from git (is there an 'origin' remote?). On the server, enter your owner/repo by hand.")
 			}
 
 			// 3. Workflow: never modify an existing one. Detect + adapt.
 			existing := detectWorkflows()
 			switch {
 			case len(existing) > 0:
-				sectionTitle("Ya tienes CI — agrega statio como un step 💻")
-				info("Detecté: %s", strings.Join(existing, ", "))
-				info("statio NO toca tu workflow. Agrega este step donde construyes y firmas tu imagen:")
+				sectionTitle("You already have CI — add statio as a step 💻")
+				info("Detected: %s", strings.Join(existing, ", "))
+				info("statio does NOT touch your workflow. Add this step where you build and sign your image:")
 				printSnippet(target, service, image, actionRef)
 			default:
 				gen := createWorkflow
 				if !gen && interactive() {
-					ok, err := confirm("No detecté un workflow de CI. ¿Genero un .github/workflows/deploy.yml listo para usar?")
+					ok, err := confirm("No CI workflow detected. Generate a ready-to-use .github/workflows/deploy.yml?")
 					if err != nil {
 						return err
 					}
@@ -382,7 +406,7 @@ func newInitRepoCmd() *cobra.Command {
 				}
 				if gen {
 					if _, err := os.Stat(out); err == nil {
-						info("%s ya existe; no se sobreescribe. Usa este step:", out)
+						info("%s already exists; not overwriting. Use this step:", out)
 						printSnippet(target, service, image, actionRef)
 					} else {
 						yml, err := render("deploy.yml.tmpl", map[string]string{"Target": target, "Service": service, "Image": image, "ActionRef": actionRef})
@@ -395,34 +419,34 @@ func newInitRepoCmd() *cobra.Command {
 						if err := os.WriteFile(out, yml, 0o644); err != nil {
 							return err
 						}
-						okLine("Generado %s", out)
+						okLine("Generated %s", out)
 					}
 				} else {
-					sectionTitle("Agrega statio a tu workflow 💻")
+					sectionTitle("Add statio to your workflow 💻")
 					printSnippet(target, service, image, actionRef)
 				}
 			}
 
 			// 4. Secrets — run from your machine, towards GitHub.
-			sectionTitle("Configura estos GitHub secrets (desde tu máquina 💻)")
+			sectionTitle("Set up these GitHub secrets (from your machine 💻)")
 			codeBlock(
-				"gh secret set STATIO_TS_AUTHKEY --body '<la auth key tag:ci que imprimió statio init server>'",
-				"gh secret set DATABASE_URL      --body '<el valor de cada env que pide tu statio.yaml>'",
+				"gh secret set STATIO_TS_AUTHKEY --body '<the tag:ci auth key printed by statio init server>'",
+				"gh secret set DATABASE_URL      --body '<the value of each env your statio.yaml requires>'",
 			)
-			info("STATIO_TS_AUTHKEY es la misma para todos tus repos; la crea 'statio init server'.")
+			info("STATIO_TS_AUTHKEY is the same for all your repos; it's minted by 'statio init server'.")
 			return nil
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&target, "target", "", "agent MagicDNS host (no-interactivo)")
-	f.StringVar(&service, "service", "", "service name (no-interactivo)")
-	f.StringVar(&image, "image", "", "image repository (no-interactivo)")
+	f.StringVar(&target, "target", "", "agent MagicDNS host (non-interactive)")
+	f.StringVar(&service, "service", "", "service name (non-interactive)")
+	f.StringVar(&image, "image", "", "image repository (non-interactive)")
 	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio@v1", "the statio Action ref (Marketplace)")
-	f.StringVar(&out, "out", ".github/workflows/deploy.yml", "ruta del workflow (con --create-workflow)")
+	f.StringVar(&out, "out", ".github/workflows/deploy.yml", "workflow path (with --create-workflow)")
 	f.StringVar(&statioOut, "statio-out", "statio.yaml", "statio.yaml starter output path")
-	f.BoolVar(&createWorkflow, "create-workflow", false, "generar un deploy.yml starter (solo si no existe ninguno)")
-	f.StringVar(&branch, "branch", "main", "rama de deploy (para la identidad cosign impresa)")
-	f.StringVar(&workflow, "workflow", "deploy.yml", "nombre del archivo de workflow (para la identidad impresa)")
+	f.BoolVar(&createWorkflow, "create-workflow", false, "generate a starter deploy.yml (only if none exists)")
+	f.StringVar(&branch, "branch", "main", "deploy branch (for the printed cosign identity)")
+	f.StringVar(&workflow, "workflow", "deploy.yml", "workflow file name (for the printed identity)")
 	return cmd
 }
 
@@ -433,7 +457,7 @@ func printSnippet(target, service, image, actionRef string) {
 		"Target": target, "Service": service, "Image": image, "ActionRef": actionRef,
 	})
 	if err != nil {
-		warnLine("no pude generar el snippet: %v", err)
+		warnLine("could not generate the snippet: %v", err)
 		return
 	}
 	fmt.Println()

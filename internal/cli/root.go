@@ -60,8 +60,8 @@ func maybeNudgeUpdate(c *cobra.Command, current string) {
 	if !ok || !selfupdate.Outdated(current, latest) {
 		return
 	}
-	warnLine("hay una versión nueva de statio: %s → %s", current, latest)
-	info("  actualiza con:  statio upgrade")
+	warnLine("a new version of statio is available: %s → %s", current, latest)
+	info("  upgrade with:  statio upgrade")
 }
 
 // topLevel returns the name of the command directly under root (e.g. "agent"

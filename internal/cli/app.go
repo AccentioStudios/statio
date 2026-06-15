@@ -39,9 +39,10 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 		repoFlag, workflowFlag, branchFlag, issuer      string
 	)
 	cmd := &cobra.Command{
-		Use:   use,
-		Short: "Accept an app: pin its image repo, signer identity and domains",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     use,
+		Short:   "Accept an app: pin its image repo, signer identity and domains",
+		Args:    cobra.MaximumNArgs(1),
+		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
 			if issuer == "" {
 				issuer = "https://token.actions.githubusercontent.com"
@@ -61,24 +62,24 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 			}
 
 			if interactive() && (name == "" || image == "" || identity == "") {
-				banner("statio · app add", "Acepta una app: fija su imagen, su repo firmante y sus dominios")
+				banner("statio · app add", "Accept an app: pin its image, its signer repo and its domains")
 				registriesCSV := strings.Join(registries, ", ")
 				var fields []huh.Field
 				if name == "" {
-					fields = append(fields, inputField("Nombre de la app", "El slot que CI despliega (ej. api). Letras, números, - o _", "api", &name, true))
+					fields = append(fields, inputField("App name", "The slot CI deploys to (e.g. api). Letters, numbers, - or _", "api", &name, true))
 				}
 				fields = append(fields,
-					inputField("Repositorio de la imagen", "El repo EXACTO de tu imagen; CI solo puede desplegar desde aquí (repo-equality). Ej: ghcr.io/tu-org/api", "ghcr.io/tu-org/api", &image, true),
-					inputField("Registries permitidos (dependencias)", "Separados por coma. De dónde pueden salir postgres/redis/etc.", "docker.io, ghcr.io", &registriesCSV, true),
+					inputField("Image repository", "The EXACT repo of your image; CI can only deploy from here (repo-equality). E.g. ghcr.io/your-org/api", "ghcr.io/your-org/api", &image, true),
+					inputField("Allowed registries (dependencies)", "Comma-separated. Where postgres/redis/etc. may come from.", "docker.io, ghcr.io", &registriesCSV, true),
 				)
 				if err := runForm(fields...); err != nil {
 					return err
 				}
 				registries = splitCSV(registriesCSV)
 
-				sectionTitle("¿Quién puede desplegar esta app? (firma cosign)")
-				info("El repo + workflow + rama de GitHub que firma los deploys de ESTA app. Cada app puede")
-				info("venir de un repo u organización distinta — por eso se pregunta acá, por app.")
+				sectionTitle("Who can deploy this app? (cosign signing)")
+				info("The GitHub repo + workflow + branch that signs THIS app's deploys. Each app can")
+				info("come from a different repo or organization — that's why it's asked here, per app.")
 				repoInput, wf, branch := repoFlag, workflowFlag, branchFlag
 				if wf == "" {
 					wf = "deploy.yml"
@@ -87,13 +88,13 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 					branch = "main"
 				}
 				repoField := huh.NewInput().
-					Title("Repositorio de GitHub de esta app").
-					Description("owner/repo (no solo la organización). Ej: accentiostudios/api. También puedes pegar la URL.").
+					Title("This app's GitHub repository").
+					Description("owner/repo (not just the organization). E.g. accentiostudios/api. You can also paste the URL.").
 					Placeholder("accentiostudios/api").
 					Value(&repoInput).
 					Validate(func(s string) error {
 						if _, _, err := parseOwnerRepo(s); err != nil {
-							return fmt.Errorf("escribe owner/repo (ej: accentiostudios/api), no solo la organización")
+							return fmt.Errorf("enter owner/repo (e.g. accentiostudios/api), not just the organization")
 						}
 						return nil
 					})
@@ -101,26 +102,26 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 					return err
 				}
 				if err := runForm(
-					inputField("Archivo del workflow", "El .yml en .github/workflows/ del repo que despliega. El que genera 'statio init repo' es deploy.yml.", "deploy.yml", &wf, true),
-					inputField("Rama autorizada", "Solo se aceptan deploys desde esta rama del repo. Normalmente main.", "main", &branch, true),
+					inputField("Workflow file", "The .yml in .github/workflows/ of the deploying repo. The one 'statio init repo' generates is deploy.yml.", "deploy.yml", &wf, true),
+					inputField("Authorized branch", "Only deploys from this branch of the repo are accepted. Usually main.", "main", &branch, true),
 				); err != nil {
 					return err
 				}
 				owner, repo, err := parseOwnerRepo(repoInput)
 				if err != nil {
-					return fmt.Errorf("repositorio inválido: %w", err)
+					return fmt.Errorf("invalid repository: %w", err)
 				}
 				identity = buildIdentity(owner, repo, trimmed(wf), trimmed(branch))
 
-				wantDomain, err := confirm("¿Exponer un dominio público (reverse proxy + DNS)?")
+				wantDomain, err := confirm("Expose a public domain (reverse proxy + DNS)?")
 				if err != nil {
 					return err
 				}
 				if wantDomain {
 					suffix, upstream := "", name
 					if err := runForm(
-						inputField("Sufijo de dominio permitido", "Solo se aceptan dominios bajo este sufijo (anti-hijack). Ej: example.com", "example.com", &suffix, true),
-						inputField("Upstream (contenedor destino)", "El servicio al que apunta el proxy", name, &upstream, true),
+						inputField("Allowed domain suffix", "Only domains under this suffix are accepted (anti-hijack). E.g. example.com", "example.com", &suffix, true),
+						inputField("Upstream (target container)", "The service the proxy points to", name, &upstream, true),
 					); err != nil {
 						return err
 					}
@@ -129,16 +130,16 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 			}
 
 			if name == "" {
-				return fmt.Errorf("falta el nombre de la app (ej. statio app add api)")
+				return fmt.Errorf("missing app name (e.g. statio app add api)")
 			}
 			if !validServiceName(name) {
-				return fmt.Errorf("nombre de app inválido %q", name)
+				return fmt.Errorf("invalid app name %q", name)
 			}
 			if image == "" {
-				return fmt.Errorf("--image (repo de tu imagen) es requerido")
+				return fmt.Errorf("--image (your image repo) is required")
 			}
 			if identity == "" {
-				return fmt.Errorf("--repo (identidad firmante de la app) es requerido")
+				return fmt.Errorf("--repo (the app's signing identity) is required")
 			}
 
 			dir := filepath.Join(servicesDir, name)
@@ -162,52 +163,53 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 			if err := fsutil.SecureWrite(path, []byte(b.String()), 0o600); err != nil {
 				return err
 			}
-			okLine("App %q aceptada: %s", name, path)
-			info("repo de imagen:   %s", image)
-			info("identidad firma:  %s", identity)
+			okLine("App %q accepted: %s", name, path)
+			info("image repo:       %s", image)
+			info("signing identity: %s", identity)
 
 			if target == "" {
 				target = readAudience(stateDir)
 			}
-			sectionTitle("En tu repo 💻 — agrega este step a tu workflow")
+			sectionTitle("In your repo 💻 — add this step to your workflow")
 			printSnippet(targetOrPlaceholder(target), name, image, actionRef)
-			sectionTitle("GitHub secrets 💻 (desde tu máquina)")
+			sectionTitle("GitHub secrets 💻 (from your machine)")
 			codeBlock(
-				"gh secret set STATIO_TS_AUTHKEY --body '<la auth key que imprimió statio init server>'",
-				"gh secret set DATABASE_URL      --body '<el valor de cada env que pide tu statio.yaml>'",
+				"gh secret set STATIO_TS_AUTHKEY --body '<the auth key that statio init server printed>'",
+				"gh secret set DATABASE_URL      --body '<the value of each env your statio.yaml requires>'",
 			)
 			return nil
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&image, "image", "", "el repo de tu imagen (ancla repo-equality)")
-	f.StringVar(&repoFlag, "repo", "", "owner/repo o URL — identidad firmante de esta app")
-	f.StringVar(&workflowFlag, "workflow", "deploy.yml", "archivo del workflow (con --repo)")
-	f.StringVar(&branchFlag, "branch", "main", "rama autorizada (con --repo)")
+	f.StringVar(&image, "image", "", "your image repo (repo-equality anchor)")
+	f.StringVar(&repoFlag, "repo", "", "owner/repo or URL — this app's signing identity")
+	f.StringVar(&workflowFlag, "workflow", "deploy.yml", "workflow file (with --repo)")
+	f.StringVar(&branchFlag, "branch", "main", "authorized branch (with --repo)")
 	f.StringVar(&issuer, "issuer", "", "cosign OIDC issuer")
-	f.StringSliceVar(&registries, "registries", []string{"docker.io", "ghcr.io"}, "registries permitidos para dependencias")
-	f.StringSliceVar(&proxySuffixes, "proxy-domain-suffix", nil, "sufijos de dominio permitidos (reverse-proxy)")
-	f.StringSliceVar(&upstreams, "proxy-upstream", nil, "contenedores upstream permitidos")
-	f.StringSliceVar(&dnsSuffixes, "dns-domain-suffix", nil, "sufijos de dominio permitidos (DNS)")
-	f.BoolVar(&rollback, "rollback", true, "rollback automático si falla el health")
-	f.IntVar(&maxServices, "max-services", 10, "cap de servicios en un deploy")
-	f.StringVar(&servicesDir, "services-dir", "/etc/statio/services", "directorio de servicios")
-	f.StringVar(&stateDir, "state-dir", "/var/lib/statio", "directorio de estado (para resolver el target)")
-	f.StringVar(&target, "target", "", "MagicDNS del agente para el snippet (default: el detectado)")
-	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio@v1", "ref del Action de statio (Marketplace)")
+	f.StringSliceVar(&registries, "registries", []string{"docker.io", "ghcr.io"}, "allowed registries for dependencies")
+	f.StringSliceVar(&proxySuffixes, "proxy-domain-suffix", nil, "allowed domain suffixes (reverse-proxy)")
+	f.StringSliceVar(&upstreams, "proxy-upstream", nil, "allowed upstream containers")
+	f.StringSliceVar(&dnsSuffixes, "dns-domain-suffix", nil, "allowed domain suffixes (DNS)")
+	f.BoolVar(&rollback, "rollback", true, "automatic rollback if health fails")
+	f.IntVar(&maxServices, "max-services", 10, "cap on services in a deploy")
+	f.StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
+	f.StringVar(&stateDir, "state-dir", "/var/lib/statio", "state directory (to resolve the target)")
+	f.StringVar(&target, "target", "", "agent MagicDNS for the snippet (default: the detected one)")
+	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio@v1", "ref of the statio Action (Marketplace)")
 	return cmd
 }
 
 func newAppListCmd() *cobra.Command {
 	var servicesDir string
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List the apps accepted on this server",
+		Use:     "list",
+		Short:   "List the apps accepted on this server",
+		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, _ []string) error {
 			entries, err := os.ReadDir(servicesDir)
 			if err != nil {
 				if os.IsNotExist(err) {
-					info("No hay apps aceptadas todavía (corre 'statio app add').")
+					info("No apps accepted yet (run 'statio app add').")
 					return nil
 				}
 				return err
@@ -224,12 +226,12 @@ func newAppListCmd() *cobra.Command {
 				okLine("%s", e.Name())
 			}
 			if !found {
-				info("No hay apps aceptadas todavía (corre 'statio app add').")
+				info("No apps accepted yet (run 'statio app add').")
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "directorio de servicios")
+	cmd.Flags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
 	return cmd
 }
 
@@ -237,20 +239,21 @@ func newAppRmCmd() *cobra.Command {
 	var servicesDir string
 	var yes bool
 	cmd := &cobra.Command{
-		Use:   "rm <name>",
-		Short: "Remove an accepted app (stops accepting its deploys)",
-		Args:  cobra.ExactArgs(1),
+		Use:     "rm <name>",
+		Short:   "Remove an accepted app (stops accepting its deploys)",
+		Args:    cobra.ExactArgs(1),
+		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
 			if !validServiceName(name) {
-				return fmt.Errorf("nombre de app inválido %q", name)
+				return fmt.Errorf("invalid app name %q", name)
 			}
 			dir := filepath.Join(servicesDir, name)
 			if _, err := os.Stat(filepath.Join(dir, "manifest.yaml")); err != nil {
-				return fmt.Errorf("la app %q no está aceptada", name)
+				return fmt.Errorf("app %q is not accepted", name)
 			}
 			if !yes && interactive() {
-				ok, err := confirm(fmt.Sprintf("¿Quitar la app %q? Dejará de aceptar sus deploys.", name))
+				ok, err := confirm(fmt.Sprintf("Remove app %q? It will stop accepting its deploys.", name))
 				if err != nil {
 					return err
 				}
@@ -261,12 +264,12 @@ func newAppRmCmd() *cobra.Command {
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}
-			okLine("App %q quitada.", name)
+			okLine("App %q removed.", name)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "directorio de servicios")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "no preguntar confirmación")
+	cmd.Flags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for confirmation")
 	return cmd
 }
 
@@ -280,7 +283,7 @@ func readAudience(stateDir string) string {
 
 func targetOrPlaceholder(t string) string {
 	if t == "" {
-		return "statio.<tu-tailnet>.ts.net"
+		return "statio.<your-tailnet>.ts.net"
 	}
 	return t
 }

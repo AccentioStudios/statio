@@ -25,7 +25,7 @@ var (
 func parseOwnerRepo(s string) (owner, repo string, err error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return "", "", fmt.Errorf("vacío")
+		return "", "", fmt.Errorf("empty")
 	}
 	// scp-like ssh (git@host:owner/repo) — only when there is no scheme.
 	if !strings.Contains(s, "://") {
@@ -50,14 +50,14 @@ func parseOwnerRepo(s string) (owner, repo string, err error) {
 
 	parts := strings.Split(s, "/")
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("esperaba owner/repo, obtuve %q", s)
+		return "", "", fmt.Errorf("expected owner/repo, got %q", s)
 	}
 	owner, repo = parts[0], strings.TrimSuffix(parts[1], ".git")
 	if !ownerRe.MatchString(owner) {
-		return "", "", fmt.Errorf("owner de GitHub inválido %q", owner)
+		return "", "", fmt.Errorf("invalid GitHub owner %q", owner)
 	}
 	if !repoRe.MatchString(repo) {
-		return "", "", fmt.Errorf("nombre de repo inválido %q", repo)
+		return "", "", fmt.Errorf("invalid repo name %q", repo)
 	}
 	return owner, repo, nil
 }

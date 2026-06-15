@@ -22,35 +22,35 @@ func newDoctorCmd(version string) *cobra.Command {
 		Use:   "doctor",
 		Short: "Check your environment for common problems",
 		RunE: func(c *cobra.Command, _ []string) error {
-			banner("statio doctor", "diagnóstico del entorno")
+			banner("statio doctor", "environment diagnostics")
 			ok := true
 
 			doctorVersion(version)
 			doctorDocker(&ok)
-			doctorTool("git", "auto-detect del repo en `statio init repo`", false, &ok)
-			doctorTool("gh", "subir secrets con `gh secret set` (cliente)", true, &ok)
-			doctorTool("cosign", "firmar imagen+payload en CI (no en el server)", true, &ok)
+			doctorTool("git", "repo auto-detect in `statio init repo`", false, &ok)
+			doctorTool("gh", "push secrets with `gh secret set` (client)", true, &ok)
+			doctorTool("cosign", "sign image+payload in CI (not on the server)", true, &ok)
 			doctorConfig(configPath, &ok)
 			doctorService()
 			doctorGitHub()
 
 			fmt.Println()
 			if ok {
-				okLine("todo en orden")
+				okLine("all good")
 			} else {
-				warnLine("revisa los puntos marcados con ✗ arriba")
+				warnLine("review the items marked with ✗ above")
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", "/etc/statio/config.yaml", "ruta del config.yaml del agente")
+	cmd.Flags().StringVar(&configPath, "config", "/etc/statio/config.yaml", "path to the agent's config.yaml")
 	return cmd
 }
 
 func doctorVersion(version string) {
 	line := fmt.Sprintf("statio %s · %s/%s", version, runtime.GOOS, runtime.GOARCH)
 	if !selfupdate.IsVersion(version) {
-		warnLine("%s (build de desarrollo — sin chequeo de versión)", line)
+		warnLine("%s (development build — no version check)", line)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -61,21 +61,21 @@ func doctorVersion(version string) {
 		return
 	}
 	if selfupdate.Outdated(version, latest) {
-		warnLine("%s — hay una nueva: %s (ejecuta `statio upgrade`)", line, latest)
+		warnLine("%s — a new one is available: %s (run `statio upgrade`)", line, latest)
 	} else {
-		okLine("%s (última)", line)
+		okLine("%s (latest)", line)
 	}
 }
 
 func doctorDocker(ok *bool) {
 	if out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output(); err == nil {
-		okLine("docker %s — daemon accesible", strings.TrimSpace(string(out)))
+		okLine("docker %s — daemon reachable", strings.TrimSpace(string(out)))
 		return
 	}
 	if _, err := exec.LookPath("docker"); err == nil {
-		failLine("docker instalado pero el daemon no responde (¿está corriendo? ¿permisos del socket?)")
+		failLine("docker installed but the daemon is not responding (is it running? socket permissions?)")
 	} else {
-		failLine("docker no encontrado — requerido en el servidor")
+		failLine("docker not found — required on the server")
 	}
 	*ok = false
 }
@@ -83,9 +83,9 @@ func doctorDocker(ok *bool) {
 func doctorTool(name, hint string, optional bool, ok *bool) {
 	if _, err := exec.LookPath(name); err != nil {
 		if optional {
-			warnLine("%s no encontrado — %s", name, hint)
+			warnLine("%s not found — %s", name, hint)
 		} else {
-			failLine("%s no encontrado — %s", name, hint)
+			failLine("%s not found — %s", name, hint)
 			*ok = false
 		}
 		return
@@ -99,15 +99,15 @@ func doctorTool(name, hint string, optional bool, ok *bool) {
 
 func doctorConfig(path string, ok *bool) {
 	if _, err := os.Stat(path); err != nil {
-		info("config del agente: %s no existe (normal si esta máquina no es el servidor)", path)
+		info("agent config: %s does not exist (normal if this machine is not the server)", path)
 		return
 	}
 	if _, err := config.Load(path); err != nil {
-		failLine("config %s inválida: %v", path, err)
+		failLine("config %s invalid: %v", path, err)
 		*ok = false
 		return
 	}
-	okLine("config del agente: %s (válida)", path)
+	okLine("agent config: %s (valid)", path)
 }
 
 func doctorService() {
@@ -120,11 +120,11 @@ func doctorService() {
 	out, _ := exec.Command("systemctl", "is-active", "statio-agent").Output()
 	switch state := strings.TrimSpace(string(out)); state {
 	case "active":
-		okLine("servicio statio-agent: active")
+		okLine("statio-agent service: active")
 	case "":
-		info("servicio statio-agent: estado desconocido")
+		info("statio-agent service: unknown state")
 	default:
-		info("servicio statio-agent: %s", state)
+		info("statio-agent service: %s", state)
 	}
 }
 
@@ -132,8 +132,8 @@ func doctorGitHub() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if _, err := selfupdate.Latest(ctx); err != nil {
-		warnLine("GitHub Releases no accesible: %v", err)
+		warnLine("GitHub Releases not reachable: %v", err)
 		return
 	}
-	okLine("GitHub Releases accesible")
+	okLine("GitHub Releases reachable")
 }

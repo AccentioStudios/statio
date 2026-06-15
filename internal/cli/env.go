@@ -21,9 +21,10 @@ func newEnvCmd() *cobra.Command {
 
 	var protected, required, secretStdin bool
 	set := &cobra.Command{
-		Use:   "set <service> KEY[=VALUE]",
-		Short: "Set a base env key (value, or --secret-stdin for a secretRef)",
-		Args:  cobra.ExactArgs(2),
+		Use:     "set <service> KEY[=VALUE]",
+		Short:   "Set a base env key (value, or --secret-stdin for a secretRef)",
+		Args:    cobra.ExactArgs(2),
+		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
 			svc := args[0]
 			b, err := env.LoadBaseEnv(basePath(svc))
@@ -68,9 +69,10 @@ func newEnvCmd() *cobra.Command {
 	set.Flags().BoolVar(&secretStdin, "secret-stdin", false, "read the secret value from stdin (stored as secretRef)")
 
 	rm := &cobra.Command{
-		Use:   "rm <service> KEY",
-		Short: "Remove a base env key",
-		Args:  cobra.ExactArgs(2),
+		Use:     "rm <service> KEY",
+		Short:   "Remove a base env key",
+		Args:    cobra.ExactArgs(2),
+		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
 			b, err := env.LoadBaseEnv(basePath(args[0]))
 			if err != nil {
@@ -84,9 +86,10 @@ func newEnvCmd() *cobra.Command {
 	}
 
 	list := &cobra.Command{
-		Use:   "list <service>",
-		Short: "List base env keys (secret/protected values are redacted)",
-		Args:  cobra.ExactArgs(1),
+		Use:     "list <service>",
+		Short:   "List base env keys (secret/protected values are redacted)",
+		Args:    cobra.ExactArgs(1),
+		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
 			b, err := env.LoadBaseEnv(basePath(args[0]))
 			if err != nil {
