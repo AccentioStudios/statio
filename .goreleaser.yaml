@@ -31,10 +31,13 @@ checksum:
   algorithm: sha256
 
 # Firma cosign keyless del checksums.txt (dogfooding: el proyecto firma sus propios releases).
+# `certificate:` es obligatorio para que el .pem se registre como artefacto y se suba al
+# release; sin él GoReleaser deja ${certificate} vacío y solo sube el .sig (no verificable).
 signs:
   - cmd: cosign
     artifacts: checksum
     output: true
+    certificate: "${artifact}.pem"
     args:
       - sign-blob
       - "--yes"
