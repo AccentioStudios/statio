@@ -82,9 +82,10 @@ Setup touches **two places**. Each command is tagged:
 
 ### Step 0 · Tailscale (once, on the web)
 
-Paste this ACL under *Access controls*, then create **one OAuth client** with scopes `auth_keys` +
-`devices`, owning the tags `tag:agent` and `tag:ci`. The server uses it to join the tailnet and to
-mint the `tag:ci` key CI needs — you never create that key by hand.
+Two steps, in order — the OAuth client can only own tags that already exist.
+
+**1. Define the tags.** Under *Access controls*, paste this ACL (creates `tag:agent` + `tag:ci`,
+lets only `tag:ci` reach the agent on one port):
 
 ```json
 {
@@ -94,17 +95,24 @@ mint the `tag:ci` key CI needs — you never create that key by hand.
 }
 ```
 
+**2. Create one OAuth client** at *Settings → OAuth clients → Generate* (newer consoles: *Trust
+credentials → New credential*). Pick **Custom scopes** and enable, both **Write**: `auth_keys`
+(**Keys → Auth Keys**) and `devices:core` (**Devices → Core**). Enabling *Devices → Core* makes
+Tailscale ask for **tags** — pick `tag:agent` and `tag:ci`. Copy its **client id** + **secret** for
+`init server`. The server uses it to join the tailnet *and* to mint the `tag:ci` key CI needs — you
+never create that key by hand. ([Full step-by-step with the exact UI](https://statio.accentio.dev/getting-started/#step-0--tailscale-once-on-the-web).)
+
 ### On your server 🖥️
 
 ```sh
-sudo statio init server     # configure the agent + mint the shared CI auth key (paste the OAuth client)
+sudo statio init server     # configure + start the agent, mint the shared CI auth key (paste the OAuth client)
 sudo statio app add api     # accept an app: image repo + its GitHub signer + domains
-sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent
 ```
 
-`init server` prints a `gh secret set STATIO_TS_AUTHKEY …` command (one secret for all repos).
-`app add` accepts each app — apps can come from different repos/orgs, each pinning its own signer.
-Both are interactive wizards — run them without flags.
+`init server` enables and starts the `statio-agent` service for you, then prints a
+`gh secret set STATIO_TS_AUTHKEY …` command (one secret for all repos). `app add` accepts each app —
+apps can come from different repos/orgs, each pinning its own signer. Both are interactive wizards —
+run them without flags.
 
 ### On your machine 💻
 

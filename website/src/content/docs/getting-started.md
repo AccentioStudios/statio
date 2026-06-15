@@ -26,7 +26,13 @@ Tailscale is the **private channel CI uses to reach the agent** — it replaces 
 never opens a public deploy port. It is **not** how your app is served (that's your reverse proxy on
 `80/443`).
 
-Paste this ACL under *Access controls* (only `tag:ci` can reach the agent, on one port):
+Do these two steps in order — the OAuth client can only own tags that already exist, so the tags
+come first.
+
+### 1. Define the tags (Access Controls)
+
+Open **Access controls** in the admin console and paste this ACL. It creates `tag:agent` (the
+agent) and `tag:ci` (CI), and allows only `tag:ci` to reach the agent, on a single port:
 
 ```json
 {
@@ -36,11 +42,23 @@ Paste this ACL under *Access controls* (only `tag:ci` can reach the agent, on on
 }
 ```
 
-Then create **one OAuth client** in the
-[admin console](https://login.tailscale.com/admin/settings/oauth) with the scopes **`auth_keys`**
-and **`devices`** (write), owning the tags **`tag:agent`** and **`tag:ci`**. The server uses it to
-join the tailnet *and* to mint the `tag:ci` key CI needs — you never create that key by hand. Copy
-its **client id** and **secret**; you'll paste them into `init server` next.
+### 2. Create the OAuth client (with those tags)
+
+Go to **Settings → [OAuth clients](https://login.tailscale.com/admin/settings/oauth) → Generate
+OAuth client** (newer consoles group this under **Trust credentials → New credential**). Pick
+**Custom scopes** and enable exactly these two, both **Write**:
+
+| Tailscale scope | Where to find it in the UI | Why |
+|---|---|---|
+| `auth_keys`    | **Keys → Auth Keys → Write** | lets the server mint the shared `tag:ci` key for CI |
+| `devices:core` | **Devices → Core → Write**   | lets the agent register itself as a node and carry its tag |
+
+Enabling **Devices → Core** makes Tailscale require you to pick **tags** — choose `tag:agent` and
+`tag:ci` (a credential can only mint keys for tags it owns, and the agent joins as `tag:agent`).
+
+Generate it, and copy the **client id** and **secret** — you paste them into `statio init server`
+next. The server uses this one client both to join the tailnet *and* to mint the `tag:ci` key CI
+needs, so you never create that key by hand.
 
 This is the only manual Tailscale step.
 
@@ -55,8 +73,8 @@ sudo statio init server
 ```
 
 It asks only for the server name and the **Tailscale OAuth client** (the id + secret from Step 0)
-— **no repo here**. It writes the agent config, joins the tailnet, and **mints the shared `tag:ci`
-auth key** CI uses to reach it, printing a ready-to-paste command:
+— **no repo here**. It writes the agent config, **enables and starts the `statio-agent` service**,
+and **mints the shared `tag:ci` auth key** CI uses to reach it, printing a ready-to-paste command:
 
 ```
   Server name        › statio
@@ -111,10 +129,13 @@ sudo statio app add api --image ghcr.io/accentiostudios/api \
   --proxy-domain-suffix example.com --dns-domain-suffix example.com
 ```
 
-### A3 · Start the agent 🖥️
+### A3 · Verify the agent 🖥️
+
+`init server` already enabled and started the `statio-agent` service. Confirm it's up:
 
 ```sh
-sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent
+systemctl status statio-agent      # active (running)
+statio status                      # the agent's own view
 ```
 
 ## Part B — In your repo 💻
