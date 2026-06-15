@@ -119,8 +119,10 @@ cross-server and replay attacks: a payload is bound to one target and one moment
 
 ## 5. Generated compose (app_intent)
 
-The agent never runs a compose file from the repo. It turns `app_intent` into a compose file from a
-**fixed, safe template** (`internal/compose`). The dangerous fields — `privileged`, `cap_add`,
+The agent never runs a compose file from the repo. **`statio.yaml` replaces `docker-compose.yml`**:
+you describe services in `statio.yaml`, the agent turns the resulting `app_intent` into a compose
+file from a **fixed, safe template** (`internal/compose`) on the server, and any compose file in your
+repo is ignored — the two are never both used. The dangerous fields — `privileged`, `cap_add`,
 `network_mode`, host bind-mounts, `devices`, `sysctls`, … — simply **don't exist** in the schema, so
 they can't be expressed.
 

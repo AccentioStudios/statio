@@ -141,6 +141,13 @@ proxy: { domain: api.example.com, upstream: api, upstream_port: 3000 }
 dns:   { domain: api.example.com }
 ```
 
+:::note[statio.yaml replaces docker-compose.yml]
+You don't write a compose file. The agent **generates** the compose from `statio.yaml` (from a
+fixed, safe template) on the server — a `docker-compose.yml` in your repo is ignored. You can't use
+both: `statio.yaml` is the single source of truth. This is what guarantees the deploy can't request
+`privileged`, host bind-mounts, or host networking (those fields don't exist in `statio.yaml`).
+:::
+
 The workflow step goes where you build and sign your image. It's what `statio init repo` prints
 when you already have CI:
 
