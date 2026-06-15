@@ -38,7 +38,7 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       # Sign the immutable digest (never a mutable tag), keyless via the run's OIDC identity.
       - run: cosign sign --yes {{.Image}}@${{ steps.build.outputs.digest }}
-      # Our tool. It reads push.yaml, builds the deploy payload, cosign-signs it with the
+      # Our tool. It reads statio.yaml, builds the deploy payload, cosign-signs it with the
       # SAME OIDC identity, and sends the signed envelope. The agent verifies it before acting.
       - uses: {{.ActionRef}}
         with:

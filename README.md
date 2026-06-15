@@ -1,4 +1,4 @@
-<h1 align="center">push</h1>
+<h1 align="center">Statio</h1>
 
 <p align="center">Despliega a tu propio servidor con un <code>git push</code> — sin SSH, sin abrir puertos.</p>
 
@@ -6,7 +6,7 @@
 
 ## Introducción
 
-**push** lleva tu imagen Docker a tu servidor de forma segura, sin las partes molestas del
+**Statio** lleva tu imagen Docker a tu servidor de forma segura, sin las partes molestas del
 deploy self-hosted:
 
 - 🔌 **Sin SSH** y **sin puertos abiertos** a internet. El servidor no expone nada.
@@ -20,7 +20,7 @@ servidor (conectado por una red privada Tailscale) la recibe, la verifica y recr
 contenedor.
 
 ```
-git push ─▶ CI: build + firma ─▶ push/action ─▶ 🛰️ agente en tu server ─▶ ✅ desplegado
+git push ─▶ CI: build + firma ─▶ statio/action ─▶ 🛰️ agente en tu server ─▶ ✅ desplegado
 ```
 
 > ¿Quieres el porqué de cada decisión técnica y el modelo de seguridad? Está en
@@ -33,18 +33,18 @@ git push ─▶ CI: build + firma ─▶ push/action ─▶ 🛰️ agente en tu
 En el servidor, un solo comando:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/accentiostudios/push/main/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/accentiostudios/statio/main/install.sh | sudo sh
 ```
 
 Detecta tu OS/arch, descarga el binario firmado desde GitHub Releases, verifica el checksum
-y lo instala en `/usr/local/bin/push`.
+y lo instala en `/usr/local/bin/statio`.
 
 <details><summary>Otras formas de instalar</summary>
 
-- **Con Go:** `go install github.com/accentiostudios/push/cmd/push@latest`
-- **Sin instalar nada (Go):** `go run github.com/accentiostudios/push/cmd/push@latest version`
-- **deb / rpm:** descarga el paquete del [release](https://github.com/accentiostudios/push/releases) → `sudo dpkg -i push_*.deb`
-- **Desde el código:** `git clone https://github.com/accentiostudios/push && cd push && go build -o push ./cmd/push`
+- **Con Go:** `go install github.com/accentiostudios/statio/cmd/statio@latest`
+- **Sin instalar nada (Go):** `go run github.com/accentiostudios/statio/cmd/statio@latest version`
+- **deb / rpm:** descarga el paquete del [release](https://github.com/accentiostudios/statio/releases) → `sudo dpkg -i statio_*.deb`
+- **Desde el código:** `git clone https://github.com/accentiostudios/statio && cd statio && go build -o statio ./cmd/statio`
 
 </details>
 
@@ -79,22 +79,22 @@ En el [admin console de Tailscale](https://login.tailscale.com/admin/settings/oa
 Ejecuta el asistente. Te guía paso a paso:
 
 ```sh
-sudo push init server
+sudo statio init server
 ```
 
 ```
   ╭─────────────────────────────────────────────╮
-  │ push · init server                            │
+  │ statio · init server                            │
   │ Configura el agente de deploy en este servidor│
   ╰─────────────────────────────────────────────╯
 
-  Nombre del servidor › push
+  Nombre del servidor › statio
   GitHub org          › accentiostudios
   Repositorio        › api
   Branch             › main
   OAuth secret       › ••••••••••••••••
   ¿Escribir la configuración?  Yes
-  ✓ Escrito: /etc/push/config.yaml y la unit de systemd
+  ✓ Escrito: /etc/statio/config.yaml y la unit de systemd
 ```
 
 ### 2 · Habilita el servicio en el servidor
@@ -103,14 +103,14 @@ Una sola vez, ops acepta el servicio y fija sus anclas de seguridad (qué repo d
 permite, qué registries de dependencias, qué dominios):
 
 ```sh
-sudo push enable api --image ghcr.io/accentiostudios/api \
+sudo statio enable api --image ghcr.io/accentiostudios/api \
   --proxy-domain-suffix example.com --dns-domain-suffix example.com
 ```
 
 Secretos que solo ops debe ver (opcional — la mayoría vienen de GitHub Secrets, ver abajo):
 
 ```sh
-sudo push env set api SOME_OPS_SECRET --secret-stdin --protected
+sudo statio env set api SOME_OPS_SECRET --secret-stdin --protected
 ```
 
 > 🔒 ¿Imagen en un repo **privado**? Una vez, en el servidor: `docker login ghcr.io` (el
@@ -120,18 +120,18 @@ sudo push env set api SOME_OPS_SECRET --secret-stdin --protected
 
 ```sh
 sudo systemctl daemon-reload
-sudo systemctl enable --now push-agent
+sudo systemctl enable --now statio-agent
 ```
 
 ### 4 · Define tu app en el repo
 
-En tu repo, un asistente genera el workflow **y** un `push.yaml` starter:
+En tu repo, un asistente genera el workflow **y** un `statio.yaml` starter:
 
 ```sh
-push init repo
+statio init repo
 ```
 
-`push.yaml` describe tu app — servicios, puertos, env, dominio — y es la fuente de verdad:
+`statio.yaml` describe tu app — servicios, puertos, env, dominio — y es la fuente de verdad:
 
 ```yaml
 services:
@@ -151,7 +151,7 @@ gh secret set TS_OAUTH_CLIENT_ID     --body '...'
 gh secret set TS_OAUTH_CLIENT_SECRET --body '...'
 ```
 
-Y en GitHub Secrets pones los valores que `push.yaml` pide (ej. `DATABASE_URL`).
+Y en GitHub Secrets pones los valores que `statio.yaml` pide (ej. `DATABASE_URL`).
 
 ### 5 · Despliega 🚀
 
@@ -161,8 +161,8 @@ git push
 
 Eso es todo. CI construye y firma la imagen, **firma el payload de deploy** (misma identidad
 keyless), y manda el envelope firmado. El agente lo verifica, baja la imagen, **genera el
-compose** desde tu `push.yaml` y recrea los contenedores. Verás el estado por etapa en los
-logs de la Action; el historial queda en `push logs api`.
+compose** desde tu `statio.yaml` y recrea los contenedores. Verás el estado por etapa en los
+logs de la Action; el historial queda en `statio logs api`.
 
 ---
 
@@ -170,22 +170,22 @@ logs de la Action; el historial queda en `push logs api`.
 
 ### Agregar un dominio (reverse proxy + DNS)
 
-1. En el servidor, ejecuta el asistente de integraciones y pega en `/etc/push/config.yaml`
+1. En el servidor, ejecuta el asistente de integraciones y pega en `/etc/statio/config.yaml`
    las líneas que imprime:
 
    ```sh
-   sudo push init integrations    # te pregunta por NPMplus y Cloudflare, paso a paso
+   sudo statio init integrations    # te pregunta por NPMplus y Cloudflare, paso a paso
    ```
 
 2. Permite el dominio al habilitar el servicio (ancla server-side):
 
    ```sh
-   sudo push enable api --image ghcr.io/accentiostudios/api \
+   sudo statio enable api --image ghcr.io/accentiostudios/api \
      --proxy-domain-suffix example.com --proxy-upstream api \
      --dns-domain-suffix example.com
    ```
 
-3. Declara el dominio en tu `push.yaml` (en el repo):
+3. Declara el dominio en tu `statio.yaml` (en el repo):
 
    ```yaml
    proxy: { domain: api.example.com, upstream: api, upstream_port: 3000 }
@@ -198,16 +198,16 @@ apuntando a tu servidor. Si NPMplus o Cloudflare fallan, el deploy igual queda s
 permitido al habilitar (anti-hijack).
 
 > El cert TLS lo emites en NPMplus (Let's Encrypt) — la emisión automática desde el agente
-> es trabajo futuro. El registro DNS y el proxy host sí los maneja `push`.
+> es trabajo futuro. El registro DNS y el proxy host sí los maneja `statio`.
 
 ### Variables de entorno
 
-Las **values** viven en GitHub Secrets; tu `push.yaml` solo **rutea** qué key va a qué
-servicio. El agente las escribe en `/run/push/<svc>/<servicio>.env` en **tmpfs (RAM)** y las
+Las **values** viven en GitHub Secrets; tu `statio.yaml` solo **rutea** qué key va a qué
+servicio. El agente las escribe en `/run/statio/<svc>/<servicio>.env` en **tmpfs (RAM)** y las
 pasa al contenedor — nunca a disco persistente.
 
 ```yaml
-# push.yaml (repo): declara las keys por servicio
+# statio.yaml (repo): declara las keys por servicio
 services:
   - name: api
     env: [DATABASE_URL, JWT_SECRET]   # values desde GitHub Secrets
@@ -225,8 +225,8 @@ with:
 Una base **server-side** sigue existiendo solo para secretos de ops que CI no debe ver:
 
 ```sh
-sudo push env set api OPS_ONLY --secret-stdin --protected   # CI no puede sobreescribirla
-sudo push env set api MUST_HAVE --required                  # CI debe proveerla, o 422
+sudo statio env set api OPS_ONLY --secret-stdin --protected   # CI no puede sobreescribirla
+sudo statio env set api MUST_HAVE --required                  # CI debe proveerla, o 422
 ```
 
 > **Sobre los secretos at-rest (honesto):** el agente corre como root con `docker.sock`, así
@@ -249,15 +249,15 @@ CI (es el modelo courier).
 ### Ver el historial / auditar
 
 ```sh
-push logs api                       # timeline por deploy (en el server)
-push logs api --target push.<tailnet>.ts.net   # remoto, por la tailnet (redactado)
+statio logs api                       # timeline por deploy (en el server)
+statio logs api --target statio.<tailnet>.ts.net   # remoto, por la tailnet (redactado)
 ```
 
 ### Varios servicios o servidores
 
-- **Varios servicios**: `push enable <svc>` por cada uno; un `push.yaml` por repo describe los
+- **Varios servicios**: `statio enable <svc>` por cada uno; un `statio.yaml` por repo describe los
   contenedores (tu app + dependencias como postgres/redis).
-- **Varios servidores**: `push` es por-servidor. Ejecuta `push init server` en cada uno; cada
+- **Varios servidores**: `statio` es por-servidor. Ejecuta `statio init server` en cada uno; cada
   agente tiene su propio hostname (= su `audience` firmado) y CI elige el target. No se coordinan.
 
 ---
@@ -265,20 +265,20 @@ push logs api --target push.<tailnet>.ts.net   # remoto, por la tailnet (redacta
 ## Comandos
 
 ```sh
-push init server          # asistente: configura el agente (interactivo)
-push init integrations    # asistente: NPMplus + Cloudflare + IP (interactivo)
-push init repo            # asistente: genera el workflow + push.yaml starter
-push enable <svc> --image REPO [--proxy-domain-suffix ...] [--dns-domain-suffix ...]
+statio init server          # asistente: configura el agente (interactivo)
+statio init integrations    # asistente: NPMplus + Cloudflare + IP (interactivo)
+statio init repo            # asistente: genera el workflow + statio.yaml starter
+statio enable <svc> --image REPO [--proxy-domain-suffix ...] [--dns-domain-suffix ...]
 
-push env set <svc> KEY=VALUE [--protected] [--required]
-push env set <svc> KEY --secret-stdin          # secreto de ops por stdin
-push env list <svc>
-push env rm  <svc> KEY
+statio env set <svc> KEY=VALUE [--protected] [--required]
+statio env set <svc> KEY --secret-stdin          # secreto de ops por stdin
+statio env list <svc>
+statio env rm  <svc> KEY
 
-push deploy --target HOST --service S --image REPO --digest D --deploy-seq N   # lo usa la Action
-push logs <svc> [--target HOST]   # audit log (local o remoto)
-push status --target HOST         # estado del agente
-push version
+statio deploy --target HOST --service S --image REPO --digest D --deploy-seq N   # lo usa la Action
+statio logs <svc> [--target HOST]   # audit log (local o remoto)
+statio status --target HOST         # estado del agente
+statio version
 ```
 
 Los `init` se ejecutan interactivos en una terminal; en CI/scripts aceptan flags y secretos
@@ -295,12 +295,12 @@ por `--*-stdin`.
 | Deploy `403` `[no_signature]` / `[identity_mismatch]` | Falta el bundle, o la identidad firmante no coincide con la configurada (org/repo/workflow/branch). |
 | Deploy `409` `[replay_seq]` o `[expired]` | Payload viejo/reusado: re-corre el deploy desde CI (mint fresco). |
 | Deploy `422` `[protected]`/`[required]` | Intentaste sobreescribir una key `--protected`, o falta una `--required`. |
-| `[registry_denied]` | Una dependencia usa un registry fuera del allowlist (`push enable --registries`). |
-| `success_degraded` que no se va | NPMplus o Cloudflare inalcanzable. Revisa `push init integrations`. Reintenta. |
+| `[registry_denied]` | Una dependencia usa un registry fuera del allowlist (`statio enable --registries`). |
+| `success_degraded` que no se va | NPMplus o Cloudflare inalcanzable. Revisa `statio init integrations`. Reintenta. |
 | `[timeout]` y revierte | La app no responde en el health path (loopback). Revisa el contenedor. |
 
 Cada falla trae un `code` estable + `hint`; el detalle crudo (output de compose) queda solo en
-`journalctl -u push-agent`, nunca en la respuesta a CI.
+`journalctl -u statio-agent`, nunca en la respuesta a CI.
 
 ---
 
@@ -310,11 +310,11 @@ Una sola identidad cosign firma **imagen y payload**. Si ese repo/workflow se co
 atacante puede firmar code + config. Mitigaciones y respuesta:
 
 - **Prevención:** branch protection + required reviews en el repo/ref firmante; alertá en cada
-  deploy (`push logs`).
-- **Rotación de un secreto filtrado** (sin esperar a CI): `push env set <svc> KEY --secret-stdin`
+  deploy (`statio logs`).
+- **Rotación de un secreto filtrado** (sin esperar a CI): `statio env set <svc> KEY --secret-stdin`
   en el server (la base de ops es el camino break-glass).
-- **Rotar la identidad confiable:** es un cambio de `cosign.identity` en `/etc/push/config.yaml`,
-  distribuible a todos los agentes; reiniciá `push-agent`. No hay edición por-servicio.
+- **Rotar la identidad confiable:** es un cambio de `cosign.identity` en `/etc/statio/config.yaml`,
+  distribuible a todos los agentes; reiniciá `statio-agent`. No hay edición por-servicio.
 - **Acotado por diseño:** aunque el payload esté firmado, el DNS apunta solo a tu IP pinneada, el
   upstream y los dominios están en allowlist, y el compose generado no puede escalar a root del
   host (sin privileged/mounts/sock). El daño se limita a "tu propio repo desplegó algo".

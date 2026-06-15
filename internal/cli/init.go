@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/fsutil"
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 )
@@ -86,15 +86,15 @@ func newInitServerCmd() *cobra.Command {
 			var oauthSecret string
 
 			if interactive() && (hostname == "" || identity == "") {
-				banner("push · init server", "Configura el agente de deploy en este servidor")
+				banner("statio · init server", "Configura el agente de deploy en este servidor")
 				org, repo, wf, branch := "", "", "deploy.yml", "main"
 				if hostname == "" {
-					hostname = "push"
+					hostname = "statio"
 				}
 				if err := runForm(
 					inputField("Nombre de este servidor",
-						"Tailscale le dará la dirección <nombre>.<tu-tailnet>.ts.net, y CI usa esa dirección para enviarle el deploy. Con un solo servidor, 'push' está bien.",
-						"push", &hostname, true),
+						"Tailscale le dará la dirección <nombre>.<tu-tailnet>.ts.net, y CI usa esa dirección para enviarle el deploy. Con un solo servidor, 'statio' está bien.",
+						"statio", &hostname, true),
 				); err != nil {
 					return err
 				}
@@ -145,13 +145,13 @@ func newInitServerCmd() *cobra.Command {
 			if err := writeServerFiles(hostname, issuer, identity, configPath, oauthSecret); err != nil {
 				return err
 			}
-			okLine("Escrito: %s, /etc/push/secrets/oauth, y la unit de systemd", configPath)
+			okLine("Escrito: %s, /etc/statio/secrets/oauth, y la unit de systemd", configPath)
 			sectionTitle("Próximos pasos")
 			codeBlock(
-				"systemctl daemon-reload && systemctl enable --now push-agent",
-				"push init integrations              # NPMplus + Cloudflare + IP pública (opcional)",
-				"push enable <svc> --image <repo>    # acepta el servicio y fija sus anclas",
-				"push init repo --target "+hostname+".<tailnet>.ts.net --service <svc> --image <repo>",
+				"systemctl daemon-reload && systemctl enable --now statio-agent",
+				"statio init integrations              # NPMplus + Cloudflare + IP pública (opcional)",
+				"statio enable <svc> --image <repo>    # acepta el servicio y fija sus anclas",
+				"statio init repo --target "+hostname+".<tailnet>.ts.net --service <svc> --image <repo>",
 			)
 			return nil
 		},
@@ -160,47 +160,47 @@ func newInitServerCmd() *cobra.Command {
 	f.StringVar(&hostname, "hostname", "", "tsnet MagicDNS hostname (no-interactivo)")
 	f.StringVar(&identity, "identity", "", "cosign certificate identity SAN (no-interactivo)")
 	f.StringVar(&issuer, "issuer", "", "cosign OIDC issuer")
-	f.StringVar(&configPath, "config", "/etc/push/config.yaml", "config output path")
+	f.StringVar(&configPath, "config", "/etc/statio/config.yaml", "config output path")
 	f.BoolVar(&oauthStdin, "ts-oauth-secret-stdin", false, "leer el OAuth secret de stdin (no-interactivo)")
 	f.StringVar(&oauthSecretFile, "ts-oauth-secret-file", "", "leer el OAuth secret de un archivo (no-interactivo)")
 	return cmd
 }
 
 func writeServerFiles(hostname, issuer, identity, configPath, oauthSecret string) error {
-	if err := os.MkdirAll("/etc/push/secrets", 0o700); err != nil {
+	if err := os.MkdirAll("/etc/statio/secrets", 0o700); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		return err
 	}
-	if err := fsutil.SecureWrite("/etc/push/secrets/oauth", []byte(oauthSecret), 0o600); err != nil {
+	if err := fsutil.SecureWrite("/etc/statio/secrets/oauth", []byte(oauthSecret), 0o600); err != nil {
 		return err
 	}
 	cfg := fmt.Sprintf(`hostname: %s
 listen_port: 443
 tailscale:
-  oauth_file: /etc/push/secrets/oauth
+  oauth_file: /etc/statio/secrets/oauth
   tags: [tag:agent]
-  state_dir: /var/lib/push/tsnet
+  state_dir: /var/lib/statio/tsnet
 cosign:
   oidc_issuer: %s
   identity: %s
   require_tlog: true
   require_sct: true
 registry:
-  ghcr_auth_file: /etc/push/secrets/ghcr.json
-services_dir: /etc/push/services
-state_dir: /var/lib/push
+  ghcr_auth_file: /etc/statio/secrets/ghcr.json
+services_dir: /etc/statio/services
+state_dir: /var/lib/statio
 log_level: info
 `, hostname, issuer, identity)
 	if err := fsutil.SecureWrite(configPath, []byte(cfg), 0o600); err != nil {
 		return err
 	}
-	unit, err := render("push-agent.service.tmpl", map[string]string{"ConfigPath": configPath})
+	unit, err := render("statio-agent.service.tmpl", map[string]string{"ConfigPath": configPath})
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("/etc/systemd/system/push-agent.service", unit, 0o644)
+	return os.WriteFile("/etc/systemd/system/statio-agent.service", unit, 0o644)
 }
 
 // ======================== init integrations =========================
@@ -213,28 +213,28 @@ func newInitIntegrationsCmd() *cobra.Command {
 			if !interactive() {
 				return fmt.Errorf("init integrations es interactivo; ejecútalo en una terminal")
 			}
-			banner("push · init integrations", "Reverse proxy (NPMplus) y DNS (Cloudflare)")
+			banner("statio · init integrations", "Reverse proxy (NPMplus) y DNS (Cloudflare)")
 
 			doNPM, err := confirm("¿Configurar NPMplus (reverse proxy)?")
 			if err != nil {
 				return err
 			}
 			if doNPM {
-				url, identity, secret := "http://npmplus:81", "push-agent", ""
+				url, identity, secret := "http://npmplus:81", "statio-agent", ""
 				if err := runForm(
 					inputField("NPMplus base URL", "Localhost o nombre de red docker", "http://npmplus:81", &url, true),
-					inputField("NPMplus API identity", "Usuario dedicado no-admin", "push-agent", &identity, true),
+					inputField("NPMplus API identity", "Usuario dedicado no-admin", "statio-agent", &identity, true),
 					passwordField("NPMplus API secret", "Se guarda 0600 root", &secret),
 				); err != nil {
 					return err
 				}
-				if err := writeJSONSecret("/etc/push/secrets/npmplus.json",
+				if err := writeJSONSecret("/etc/statio/secrets/npmplus.json",
 					fmt.Sprintf(`{"base_url":%q,"identity":%q,"secret":%q}`, url, identity, secret)); err != nil {
 					return err
 				}
 				okLine("NPMplus configurado")
-				sectionTitle("Agrega a /etc/push/config.yaml")
-				codeBlock("npmplus:", "  base_url: "+url, "  credentials_file: /etc/push/secrets/npmplus.json")
+				sectionTitle("Agrega a /etc/statio/config.yaml")
+				codeBlock("npmplus:", "  base_url: "+url, "  credentials_file: /etc/statio/secrets/npmplus.json")
 			}
 
 			doCF, err := confirm("¿Configurar Cloudflare (DNS)?")
@@ -251,15 +251,15 @@ func newInitIntegrationsCmd() *cobra.Command {
 				); err != nil {
 					return err
 				}
-				if err := writeJSONSecret("/etc/push/secrets/cloudflare.json",
+				if err := writeJSONSecret("/etc/statio/secrets/cloudflare.json",
 					fmt.Sprintf(`{"api_token":%q,"zone_id":%q}`, token, zoneID)); err != nil {
 					return err
 				}
 				okLine("Cloudflare configurado")
-				sectionTitle("Agrega a /etc/push/config.yaml")
+				sectionTitle("Agrega a /etc/statio/config.yaml")
 				codeBlock(
 					"cloudflare:",
-					"  credentials_file: /etc/push/secrets/cloudflare.json",
+					"  credentials_file: /etc/statio/secrets/cloudflare.json",
 					"  zone_apex: "+apex,
 					"dns:",
 					"  public_ip: "+ip,
@@ -286,15 +286,15 @@ func writeJSONSecret(path, json string) error {
 // ============================ init repo =============================
 
 func newInitRepoCmd() *cobra.Command {
-	var target, service, image, actionRef, out, pushOut string
+	var target, service, image, actionRef, out, statioOut string
 	cmd := &cobra.Command{
 		Use:   "repo",
 		Short: "Generate the GitHub Actions workflow (interactive)",
 		RunE: func(c *cobra.Command, _ []string) error {
 			if interactive() && (target == "" || service == "" || image == "") {
-				banner("push · init repo", "Genera .github/workflows/deploy.yml")
+				banner("statio · init repo", "Genera .github/workflows/deploy.yml")
 				if err := runForm(
-					inputField("Dirección del servidor (Tailscale)", "El nombre que le pusiste + .<tu-tailnet>.ts.net. Ej: push.tu-org.ts.net", "push.<tu-tailnet>.ts.net", &target, true),
+					inputField("Dirección del servidor (Tailscale)", "El nombre que le pusiste + .<tu-tailnet>.ts.net. Ej: statio.tu-org.ts.net", "statio.<tu-tailnet>.ts.net", &target, true),
 					inputField("Service", "Nombre del servicio (debe existir en el agente)", "api", &service, true),
 					inputField("Image repository", "Repo de la imagen", "ghcr.io/accentiostudios/api", &image, true),
 				); err != nil {
@@ -317,18 +317,18 @@ func newInitRepoCmd() *cobra.Command {
 			}
 			okLine("Generado %s", out)
 
-			// Also scaffold push.yaml in the repo root (skip if it already exists).
-			if _, err := os.Stat(pushOut); os.IsNotExist(err) {
-				py, err := render("push.yaml.tmpl", map[string]string{"Service": service})
+			// Also scaffold statio.yaml in the repo root (skip if it already exists).
+			if _, err := os.Stat(statioOut); os.IsNotExist(err) {
+				py, err := render("statio.yaml.tmpl", map[string]string{"Service": service})
 				if err != nil {
 					return err
 				}
-				if err := os.WriteFile(pushOut, py, 0o644); err != nil {
+				if err := os.WriteFile(statioOut, py, 0o644); err != nil {
 					return err
 				}
-				okLine("Generado %s (editá los servicios/env de tu app)", pushOut)
+				okLine("Generado %s (editá los servicios/env de tu app)", statioOut)
 			} else {
-				info("%s ya existe; no se tocó", pushOut)
+				info("%s ya existe; no se tocó", statioOut)
 			}
 
 			sectionTitle("Configura estos GitHub secrets (print-to-paste — el CLI nunca maneja un PAT)")
@@ -344,9 +344,9 @@ func newInitRepoCmd() *cobra.Command {
 	f.StringVar(&target, "target", "", "agent MagicDNS host (no-interactivo)")
 	f.StringVar(&service, "service", "", "service name (no-interactivo)")
 	f.StringVar(&image, "image", "", "image repository (no-interactivo)")
-	f.StringVar(&actionRef, "action-ref", "accentiostudios/push/action@v1", "the push composite action ref")
+	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio/action@v1", "the push composite action ref")
 	f.StringVar(&out, "out", ".github/workflows/deploy.yml", "workflow output path")
-	f.StringVar(&pushOut, "push-out", "push.yaml", "push.yaml starter output path")
+	f.StringVar(&statioOut, "statio-out", "statio.yaml", "statio.yaml starter output path")
 	return cmd
 }
 

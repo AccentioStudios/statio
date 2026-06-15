@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/fsutil"
 )
 
 // Error is a typed merge failure. Code lets the agent map to an HTTP status:
@@ -32,7 +32,7 @@ func ResolveFileSecret(ref string) (string, error) {
 }
 
 // ConfinedResolver returns a SecretResolver that only reads secret files under baseDir.
-// This closes a path-traversal: a crafted secretRef (file:///etc/push/secrets/cloudflare.json)
+// This closes a path-traversal: a crafted secretRef (file:///etc/statio/secrets/cloudflare.json)
 // must not be able to read an arbitrary 0600-root file outside the service's own secrets dir.
 func ConfinedResolver(baseDir string) SecretResolver {
 	return func(ref string) (string, error) { return resolveFileSecret(ref, baseDir) }

@@ -7,11 +7,11 @@ import (
 
 func validReq() string {
 	return `{
-	  "apiVersion": "push/v1",
+	  "apiVersion": "statio/v1",
 	  "kind": "DeployRequest",
 	  "service": "api",
 	  "image": {"repository": "ghcr.io/org/api", "digest": "sha256:` + strings.Repeat("a", 64) + `"},
-	  "audience": "push.tail1234.ts.net",
+	  "audience": "statio.tail1234.ts.net",
 	  "deploy_seq": 12,
 	  "issued_at": "2026-06-14T12:00:00Z",
 	  "expiry": "2026-06-14T12:05:00Z",
@@ -85,7 +85,7 @@ func TestValidateEnv(t *testing.T) {
 		{"newline-forgery", "FOO", "bar\nEVIL=1", false},
 		{"nul", "FOO", "bar\x00", false},
 		{"tab", "FOO", "a\tb", false},
-		{"reserved-prefix", "PUSH_IMAGE_DIGEST", "x", false},
+		{"reserved-prefix", "STATIO_IMAGE_DIGEST", "x", false},
 		{"lowercase-key", "foo", "x", false},
 	}
 	for _, c := range cases {

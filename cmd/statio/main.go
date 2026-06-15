@@ -1,13 +1,13 @@
 // Command push is the single binary for both project parts:
-//   - Part 1 (server): `push agent run`, `push init ...`, `push env ...`, `push status`.
-//   - Part 2 (client):  `push deploy` — invoked by the GitHub Action on the runner.
+//   - Part 1 (server): `statio agent run`, `statio init ...`, `statio env ...`, `statio status`.
+//   - Part 2 (client):  `statio deploy` — invoked by the GitHub Action on the runner.
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/accentiostudios/push/internal/cli"
+	"github.com/accentiostudios/statio/internal/cli"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".

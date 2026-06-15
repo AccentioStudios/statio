@@ -57,7 +57,7 @@ func TestValidateBadPublicIP(t *testing.T) {
 
 func TestValidateCloudflareNeedsIP(t *testing.T) {
 	c := valid()
-	c.Cloudflare.CredentialsFile = "/etc/push/secrets/cloudflare.json"
+	c.Cloudflare.CredentialsFile = "/etc/statio/secrets/cloudflare.json"
 	c.Cloudflare.ZoneApex = "example.com"
 	if c.Validate() == nil {
 		t.Fatal("expected cloudflare-without-IP rejection")

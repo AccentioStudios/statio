@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	manifestAPIVersion = "push/v1"
+	manifestAPIVersion = "statio/v1"
 	manifestKind       = "ServiceDeploy"
 )
 

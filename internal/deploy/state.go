@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/fsutil"
 )
 
 // State is the per-service deploy state, persisted atomically to state.json (0600 root).

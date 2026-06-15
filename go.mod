@@ -1,4 +1,4 @@
-module github.com/accentiostudios/push
+module github.com/accentiostudios/statio
 
 go 1.26.4
 

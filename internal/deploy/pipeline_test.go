@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/accentiostudios/push/internal/config"
-	"github.com/accentiostudios/push/internal/env"
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/config"
+	"github.com/accentiostudios/statio/internal/env"
+	"github.com/accentiostudios/statio/internal/spec"
 )
 
 type fakeVerifier struct {
@@ -36,7 +36,7 @@ func setup(t *testing.T, extraBaseEnv string) (*Deployer, *fakeVerifier, *fakePu
 	t.Helper()
 	dir := t.TempDir()
 	name := filepath.Base(dir)
-	manifest := `apiVersion: push/v1
+	manifest := `apiVersion: statio/v1
 kind: ServiceDeploy
 name: ` + name + `
 image:
@@ -69,7 +69,7 @@ rollback:
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		Hostname:   "push",
+		Hostname:   "statio",
 		Cosign:     config.CosignConfig{OIDCIssuer: "iss", Identity: "id"},
 		Cloudflare: config.CloudflareConfig{ZoneApex: "example.com"},
 		DNS:        config.DNSConfig{PublicIP: "203.0.113.10", TTL: 1},
@@ -79,7 +79,7 @@ rollback:
 	p := &fakePuller{}
 	d := &Deployer{
 		Cfg: cfg, Manifest: m, StatePath: filepath.Join(dir, "state.json"),
-		Verifier: v, Puller: p, Resolve: env.ResolveFileSecret, Audience: "push",
+		Verifier: v, Puller: p, Resolve: env.ResolveFileSecret, Audience: "statio",
 		Now: func() string { return "t0" }, Log: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	return d, v, p
@@ -87,9 +87,9 @@ rollback:
 
 func req(t *testing.T, mutate func(r *spec.DeployRequest)) *spec.DeployRequest {
 	t.Helper()
-	body := `{"apiVersion":"push/v1","kind":"DeployRequest","service":"api",` +
+	body := `{"apiVersion":"statio/v1","kind":"DeployRequest","service":"api",` +
 		`"image":{"repository":"ghcr.io/org/api","digest":"` + digest + `"},` +
-		`"audience":"push","deploy_seq":1,"issued_at":"2026-06-14T12:00:00Z","expiry":"2099-01-01T00:00:00Z",` +
+		`"audience":"statio","deploy_seq":1,"issued_at":"2026-06-14T12:00:00Z","expiry":"2099-01-01T00:00:00Z",` +
 		`"app_intent":{"services":[{"name":"api","ports":[3000],"health":{"path":"/health"}}]}}`
 	r, err := spec.Decode(strings.NewReader(body))
 	if err != nil {
@@ -136,7 +136,7 @@ func TestRunRejectsDNSDomainNotAllowed(t *testing.T) {
 }
 
 func TestRunRejectsProtectedOverride(t *testing.T) {
-	baseEnv := `apiVersion: push/v1
+	baseEnv := `apiVersion: statio/v1
 kind: ServiceEnv
 entries:
   - key: SECRET_KEY

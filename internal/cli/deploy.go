@@ -7,20 +7,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/accentiostudios/push/internal/client"
-	"github.com/accentiostudios/push/internal/deploy"
-	"github.com/accentiostudios/push/internal/pushfile"
+	"github.com/accentiostudios/statio/internal/client"
+	"github.com/accentiostudios/statio/internal/deploy"
+	"github.com/accentiostudios/statio/internal/statiofile"
 	"github.com/spf13/cobra"
 )
 
 func newDeployCmd() *cobra.Command {
 	var (
-		target, service, image, digest, pushFile, audience string
-		deploySeq                                          int64
-		freshness                                          time.Duration
-		envs                                               []string
-		strict                                             bool
-		timeout                                            time.Duration
+		target, service, image, digest, statioFile, audience string
+		deploySeq                                            int64
+		freshness                                            time.Duration
+		envs                                                 []string
+		strict                                               bool
+		timeout                                              time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "deploy",
@@ -29,11 +29,11 @@ func newDeployCmd() *cobra.Command {
 			if target == "" || service == "" || image == "" || digest == "" {
 				return fmt.Errorf("--target, --service, --image and --digest are required")
 			}
-			data, err := os.ReadFile(pushFile)
+			data, err := os.ReadFile(statioFile)
 			if err != nil {
-				return fmt.Errorf("read %s: %w", pushFile, err)
+				return fmt.Errorf("read %s: %w", statioFile, err)
 			}
-			pf, err := pushfile.Parse(data)
+			pf, err := statiofile.Parse(data)
 			if err != nil {
 				return err
 			}
@@ -72,21 +72,21 @@ func newDeployCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&target, "target", "", "agent MagicDNS host (e.g. push.tailnet.ts.net); also the signed audience")
+	f.StringVar(&target, "target", "", "agent MagicDNS host (e.g. statio.tailnet.ts.net); also the signed audience")
 	f.StringVar(&service, "service", "", "service slot name (must be accepted on the server)")
 	f.StringVar(&image, "image", "", "your app's image repository (no tag/digest)")
 	f.StringVar(&digest, "digest", "", "image digest sha256:...")
-	f.StringVar(&pushFile, "push-file", "push.yaml", "path to the repo's push.yaml")
+	f.StringVar(&statioFile, "statio-file", "statio.yaml", "path to the repo's statio.yaml")
 	f.StringVar(&audience, "audience", "", "override the signed audience (defaults to --target)")
 	f.Int64Var(&deploySeq, "deploy-seq", 0, "monotonic deploy sequence (e.g. github.run_number)")
 	f.DurationVar(&freshness, "freshness", 5*time.Minute, "how long the signed payload stays valid")
-	f.StringArrayVar(&envs, "env", nil, "env override KEY=VALUE (repeatable; or PUSH_ENV_OVERRIDES)")
+	f.StringArrayVar(&envs, "env", nil, "env override KEY=VALUE (repeatable; or STATIO_ENV_OVERRIDES)")
 	f.BoolVar(&strict, "strict", false, "treat success_degraded as failure")
 	f.DurationVar(&timeout, "timeout", 5*time.Minute, "deploy timeout")
 	return cmd
 }
 
-// collectEnv merges repeatable --env flags with the optional PUSH_ENV_OVERRIDES dotenv
+// collectEnv merges repeatable --env flags with the optional STATIO_ENV_OVERRIDES dotenv
 // block (set by the Action from ${{ secrets.* }}). Values never come from argv in CI.
 func collectEnv(flags []string) (map[string]string, error) {
 	out := map[string]string{}
@@ -102,7 +102,7 @@ func collectEnv(flags []string) (map[string]string, error) {
 		out[strings.TrimSpace(k)] = v
 		return nil
 	}
-	if block := os.Getenv("PUSH_ENV_OVERRIDES"); block != "" {
+	if block := os.Getenv("STATIO_ENV_OVERRIDES"); block != "" {
 		for _, line := range strings.Split(block, "\n") {
 			if err := add(line); err != nil {
 				return nil, err

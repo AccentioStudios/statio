@@ -1,17 +1,17 @@
 # GoReleaser: produce los binarios, checksums y firmas cosign que install.sh y la Action
-# (action/install-push.sh) descargan desde GitHub Releases. Dispara con: git tag vX.Y.Z && git push --tags
+# (action/install-statio.sh) descargan desde GitHub Releases. Dispara con: git tag vX.Y.Z && git statio --tags
 version: 2
 
-project_name: push
+project_name: statio
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: push
-    main: ./cmd/push
-    binary: push
+  - id: statio
+    main: ./cmd/statio
+    binary: statio
     env:
       - CGO_ENABLED=0
     ldflags:
@@ -19,12 +19,12 @@ builds:
     goos: [linux, darwin]
     goarch: [amd64, arm64]
 
-# Sube el binario crudo como push_<os>_<arch> (sin versión en el nombre) para que
-# /releases/latest/download/push_linux_amd64 resuelva siempre al último.
+# Sube el binario crudo como statio_<os>_<arch> (sin versión en el nombre) para que
+# /releases/latest/download/statio_linux_amd64 resuelva siempre al último.
 archives:
   - id: bin
     formats: [binary]
-    name_template: "push_{{ .Os }}_{{ .Arch }}"
+    name_template: "statio_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
@@ -43,17 +43,17 @@ signs:
       - "${artifact}"
 
 # Paquetes para el servidor: instala el binario en /usr/local/bin (la unit systemd la
-# genera `push init server`).
+# genera `statio init server`).
 nfpms:
   - id: pkgs
-    package_name: push
+    package_name: statio
     formats: [deb, rpm]
     maintainer: accentiostudios
     description: Deploy a self-hosted server without SSH or a public port
-    homepage: https://github.com/accentiostudios/push
+    homepage: https://github.com/accentiostudios/statio
     bindir: /usr/local/bin
 
 release:
   github:
     owner: accentiostudios
-    name: push
+    name: statio

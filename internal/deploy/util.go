@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/fsutil"
 )
 
 // writeFileSecure creates the parent directory (0700) and atomically writes the file 0600.

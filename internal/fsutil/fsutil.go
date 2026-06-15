@@ -15,7 +15,7 @@ import (
 // deploy). The temp file is removed on any error.
 func SecureWrite(path string, data []byte, perm os.FileMode) (err error) {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".push-tmp-*")
+	tmp, err := os.CreateTemp(dir, ".statio-tmp-*")
 	if err != nil {
 		return fmt.Errorf("create temp in %s: %w", dir, err)
 	}

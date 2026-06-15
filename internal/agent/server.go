@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/accentiostudios/push/internal/config"
-	"github.com/accentiostudios/push/internal/deploy"
-	"github.com/accentiostudios/push/internal/verify"
+	"github.com/accentiostudios/statio/internal/config"
+	"github.com/accentiostudios/statio/internal/deploy"
+	"github.com/accentiostudios/statio/internal/verify"
 	"tailscale.com/tsnet"
 )
 

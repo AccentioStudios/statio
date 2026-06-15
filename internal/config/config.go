@@ -1,4 +1,4 @@
-// Package config loads and validates the global agent config (/etc/push/config.yaml).
+// Package config loads and validates the global agent config (/etc/statio/config.yaml).
 // Validation is fail-closed: a missing or loose cosign identity, an unanchored identity
 // regexp, or a malformed public IP aborts startup rather than weakening a security gate.
 package config
@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/fsutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -102,16 +102,16 @@ func (c *Config) applyDefaults() {
 		c.Tailscale.Tags = []string{"tag:agent"}
 	}
 	if c.Tailscale.StateDir == "" {
-		c.Tailscale.StateDir = "/var/lib/push/tsnet"
+		c.Tailscale.StateDir = "/var/lib/statio/tsnet"
 	}
 	if c.ServicesDir == "" {
-		c.ServicesDir = "/etc/push/services"
+		c.ServicesDir = "/etc/statio/services"
 	}
 	if c.StateDir == "" {
-		c.StateDir = "/var/lib/push"
+		c.StateDir = "/var/lib/statio"
 	}
 	if c.RunDir == "" {
-		c.RunDir = "/run/push"
+		c.RunDir = "/run/statio"
 	}
 	if c.LogLevel == "" {
 		c.LogLevel = "info"

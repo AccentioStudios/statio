@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/accentiostudios/push/internal/agent"
-	"github.com/accentiostudios/push/internal/config"
+	"github.com/accentiostudios/statio/internal/agent"
+	"github.com/accentiostudios/statio/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +32,7 @@ func newAgentCmd() *cobra.Command {
 			return agent.New(cfg, log).Run(ctx)
 		},
 	}
-	run.Flags().StringVar(&configPath, "config", "/etc/push/config.yaml", "path to config.yaml")
+	run.Flags().StringVar(&configPath, "config", "/etc/statio/config.yaml", "path to config.yaml")
 	cmd.AddCommand(run)
 	return cmd
 }

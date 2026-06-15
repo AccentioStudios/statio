@@ -18,7 +18,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,7 +29,7 @@ type Input struct {
 	Slot              string // the accepted service slot (compose project + volume namespace)
 	PrimaryRepo       string // server-pinned repo for image-less (your-app) services
 	Digest            string // verified image digest (sha256:...)
-	RunDir            string // tmpfs dir holding per-service env files, e.g. /run/push/<slot>
+	RunDir            string // tmpfs dir holding per-service env files, e.g. /run/statio/<slot>
 	AllowedRegistries []string
 	Intent            *spec.AppIntent
 }
@@ -83,7 +83,7 @@ func Generate(in Input) ([]byte, error) {
 		}
 
 		for _, v := range s.Volumes {
-			name := "push_" + in.Slot + "_" + v.Name
+			name := "statio_" + in.Slot + "_" + v.Name
 			mount := name + ":" + v.Path
 			if v.ReadOnly {
 				mount += ":ro"

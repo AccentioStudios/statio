@@ -50,7 +50,7 @@ func newErr(code, format string, args ...any) *ValidationError {
 // DecodeBytes decodes the EXACT bytes that were signed and verified (no re-marshal,
 // no canonicalization) as a DeployRequest, with DisallowUnknownFields and the body cap.
 // This is the byte-equality discipline (invariant #15): the caller passes the verified
-// Envelope.Payload straight here. Anything that is not exactly push/v1 DeployRequest is
+// Envelope.Payload straight here. Anything that is not exactly statio/v1 DeployRequest is
 // refused before the agent takes any action.
 func DecodeBytes(data []byte) (*DeployRequest, error) {
 	if int64(len(data)) > MaxBodyBytes {
@@ -175,8 +175,8 @@ func validateEnv(env map[string]string) error {
 		if !envKeyRe.MatchString(k) {
 			return newErr("env_key", "env key %q is invalid", k)
 		}
-		if strings.HasPrefix(k, "PUSH_") {
-			return newErr("env_key", "env key %q uses the reserved PUSH_ prefix", k)
+		if strings.HasPrefix(k, "STATIO_") {
+			return newErr("env_key", "env key %q uses the reserved STATIO_ prefix", k)
 		}
 		if len(v) > MaxEnvValueBytes {
 			return newErr("env_value", "env value for %q exceeds %d bytes", k, MaxEnvValueBytes)

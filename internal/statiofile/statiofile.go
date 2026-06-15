@@ -1,19 +1,19 @@
-// Package pushfile parses the repo's push.yaml — the dev-authored, unified description of
+// Package pushfile parses the repo's statio.yaml — the dev-authored, unified description of
 // the services to deploy — and converts it into the wire types (spec.AppIntent + proxy/dns).
 // It decodes STRICTLY (KnownFields): any field outside the safe allowlist schema is a hard
 // error, mirroring the closed-schema discipline of the wire (invariant #1/#19). YAML
 // anchors/aliases and multi-document streams are rejected.
-package pushfile
+package statiofile
 
 import (
 	"bytes"
 	"fmt"
 
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 
-// File is the whole push.yaml. Only these fields exist; dangerous compose keys are
+// File is the whole statio.yaml. Only these fields exist; dangerous compose keys are
 // unrepresentable.
 type File struct {
 	Services []Service  `yaml:"services"`
@@ -93,21 +93,21 @@ type DNSSpec struct {
 	Domain string `yaml:"domain"`
 }
 
-// Parse decodes push.yaml strictly.
+// Parse decodes statio.yaml strictly.
 func Parse(data []byte) (*File, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var f File
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("parse push.yaml: %w", err)
+		return nil, fmt.Errorf("parse statio.yaml: %w", err)
 	}
 	// Reject a second YAML document (multi-doc smuggling).
 	var extra yaml.Node
 	if err := dec.Decode(&extra); err == nil {
-		return nil, fmt.Errorf("push.yaml must contain a single document")
+		return nil, fmt.Errorf("statio.yaml must contain a single document")
 	}
 	if len(f.Services) == 0 {
-		return nil, fmt.Errorf("push.yaml: services must not be empty")
+		return nil, fmt.Errorf("statio.yaml: services must not be empty")
 	}
 	return &f, nil
 }

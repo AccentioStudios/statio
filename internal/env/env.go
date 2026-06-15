@@ -14,12 +14,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/fsutil"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	apiVersion = "push/v1"
+	apiVersion = "statio/v1"
 	kind       = "ServiceEnv"
 )
 
@@ -92,7 +92,7 @@ func LoadBaseEnv(path string) (*BaseEnv, error) {
 	return &b, nil
 }
 
-// Save atomically writes the base env file (0600). Used by `push env set/rm`.
+// Save atomically writes the base env file (0600). Used by `statio env set/rm`.
 func (b *BaseEnv) Save(path string) error {
 	b.APIVersion = apiVersion
 	b.Kind = kind
@@ -137,7 +137,7 @@ func (b *BaseEnv) ProtectedKeys() map[string]bool {
 }
 
 func validKey(k string) bool {
-	if k == "" || strings.HasPrefix(k, "PUSH_") {
+	if k == "" || strings.HasPrefix(k, "STATIO_") {
 		return false
 	}
 	for i, r := range k {

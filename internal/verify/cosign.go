@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/accentiostudios/push/internal/deploy"
+	"github.com/accentiostudios/statio/internal/deploy"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/sigstore/cosign/v3/pkg/cosign"
 	"github.com/sigstore/sigstore-go/pkg/root"

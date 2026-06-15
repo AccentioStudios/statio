@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/spec"
 )
 
 func gen(t *testing.T, in Input) string {
@@ -19,7 +19,7 @@ func gen(t *testing.T, in Input) string {
 func TestGenerateMultiService(t *testing.T) {
 	in := Input{
 		Slot: "api", PrimaryRepo: "ghcr.io/org/api", Digest: "sha256:" + strings.Repeat("a", 64),
-		RunDir: "/run/push/api", AllowedRegistries: []string{"docker.io"},
+		RunDir: "/run/statio/api", AllowedRegistries: []string{"docker.io"},
 		Intent: &spec.AppIntent{Services: []spec.Service{
 			{Name: "api", Ports: []spec.Port{{Container: 3000, Host: 3000, Protocol: "tcp"}}, Env: []string{"DATABASE_URL"}, DependsOn: []string{"db"}},
 			{Name: "db", Image: "postgres:16", Volumes: []spec.Volume{{Name: "pgdata", Path: "/var/lib/postgresql/data"}}},
@@ -27,11 +27,11 @@ func TestGenerateMultiService(t *testing.T) {
 	}
 	out := gen(t, in)
 	for _, want := range []string{
-		"ghcr.io/org/api@sha256:",                  // primary baked literally
-		"127.0.0.1:3000:3000",                      // loopback only
-		"image: postgres:16",                       // dependency as-is
-		"push_api_pgdata:/var/lib/postgresql/data", // namespaced volume
-		"/run/push/api/api.env",                    // env_file
+		"ghcr.io/org/api@sha256:",                    // primary baked literally
+		"127.0.0.1:3000:3000",                        // loopback only
+		"image: postgres:16",                         // dependency as-is
+		"statio_api_pgdata:/var/lib/postgresql/data", // namespaced volume
+		"/run/statio/api/api.env",                    // env_file
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("generated compose missing %q\n%s", want, out)
@@ -52,7 +52,7 @@ func TestGenerateNeverEmitsForbiddenKeys(t *testing.T) {
 	// loopback/namespacing/escaping all hold.
 	in := Input{
 		Slot: "x", PrimaryRepo: "ghcr.io/org/app", Digest: "sha256:" + strings.Repeat("b", 64),
-		RunDir: "/run/push/x", AllowedRegistries: []string{"docker.io"},
+		RunDir: "/run/statio/x", AllowedRegistries: []string{"docker.io"},
 		Intent: &spec.AppIntent{Services: []spec.Service{
 			{Name: "app", Ports: []spec.Port{{Container: 80, Host: 80, Protocol: "tcp"}},
 				Command: []string{"sh", "-c", "echo ${HOME} $(whoami)"}, // $ must be escaped to $$
@@ -72,7 +72,7 @@ func TestGenerateNeverEmitsForbiddenKeys(t *testing.T) {
 	if !strings.Contains(out, "$$") {
 		t.Errorf("expected $ escaped to $$ in command:\n%s", out)
 	}
-	if !strings.Contains(out, "push_x_data:/data:ro") {
+	if !strings.Contains(out, "statio_x_data:/data:ro") {
 		t.Errorf("read-only namespaced volume missing:\n%s", out)
 	}
 }
@@ -80,7 +80,7 @@ func TestGenerateNeverEmitsForbiddenKeys(t *testing.T) {
 func TestGenerateRejectsDisallowedRegistry(t *testing.T) {
 	in := Input{
 		Slot: "api", PrimaryRepo: "ghcr.io/org/api", Digest: "sha256:" + strings.Repeat("a", 64),
-		RunDir: "/run/push/api", AllowedRegistries: []string{"ghcr.io"}, // docker.io NOT allowed
+		RunDir: "/run/statio/api", AllowedRegistries: []string{"ghcr.io"}, // docker.io NOT allowed
 		Intent: &spec.AppIntent{Services: []spec.Service{
 			{Name: "api"},
 			{Name: "db", Image: "postgres:16"}, // docker.io

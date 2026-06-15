@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/fsutil"
 )
 
 type npmplusCreds struct {

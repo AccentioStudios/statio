@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/accentiostudios/push/internal/deploy"
+	"github.com/accentiostudios/statio/internal/deploy"
 )
 
 // These cover the fail-closed guards that run BEFORE any trust-root fetch (no network).

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/spec"
 )
 
 // HealthConfig is the resolved loopback readiness probe. It is DERIVED from the signed

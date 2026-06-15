@@ -1,4 +1,4 @@
-// Package client implements `push deploy`: it builds the push/v1 spec (validating it
+// Package client implements `statio deploy`: it builds the statio/v1 spec (validating it
 // with the SAME internal/spec code the agent uses, so the contract can't drift), then
 // POSTs it to the agent over the tailnet.
 //
@@ -18,8 +18,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/accentiostudios/push/internal/deploy"
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/deploy"
+	"github.com/accentiostudios/statio/internal/spec"
 )
 
 // Inputs are the per-deploy parameters (from the Action or operator flags).
@@ -71,7 +71,7 @@ func BuildSpec(in Inputs) ([]byte, error) {
 // on the Action runner and picks up the run's ambient OIDC token) and wraps them with the
 // resulting Sigstore bundle into the wire envelope. The SAME bytes are signed and carried.
 func SignAndWrap(ctx context.Context, payload []byte) ([]byte, error) {
-	tmp, err := os.MkdirTemp("", "push-sign")
+	tmp, err := os.MkdirTemp("", "statio-sign")
 	if err != nil {
 		return nil, err
 	}

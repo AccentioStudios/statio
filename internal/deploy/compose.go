@@ -11,15 +11,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/accentiostudios/push/internal/env"
-	"github.com/accentiostudios/push/internal/fsutil"
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/env"
+	"github.com/accentiostudios/statio/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/spec"
 )
 
 const composeFileName = "compose.yaml"
 
 // RunSet is the complete set of generated artifacts for one deploy: the compose file and
-// each service's rendered env. It is written to tmpfs (/run/push/<slot>) — never persistent
+// each service's rendered env. It is written to tmpfs (/run/statio/<slot>) — never persistent
 // disk — and snapshotted (also in tmpfs) so a rollback can restore the exact prior set.
 type RunSet struct {
 	Compose []byte

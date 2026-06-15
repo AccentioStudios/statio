@@ -1,19 +1,19 @@
-# Cómo funciona `push` por dentro
+# Cómo funciona `statio` por dentro
 
 Documento técnico: arquitectura, pipeline, contrato de wire, modelo de seguridad y
 referencias completas. Para la guía de uso, ver el [README](../README.md).
 
 > **⚠️ Redesign v2 — config firmada desde el repo.** Varias secciones abajo describen el modelo
 > original (manifest + compose server-side, env de dos archivos no firmado). El modelo actual:
-> - La config del servicio vive en **`push.yaml` (en el repo)**; el agente **genera** el compose
+> - La config del servicio vive en **`statio.yaml` (en el repo)**; el agente **genera** el compose
 >   (allowlist, multi-servicio) — ya no hay compose escrito a mano ni `interp.env`.
 > - El wire es un **envelope firmado** `{payload, bundle}`: CI firma el payload con cosign keyless
 >   (misma identidad que la imagen) y el agente hace `verify-blob` **antes** de decodificar, con
 >   binding de `audience`/`deploy_seq`/`expiry` (anti replay/cross-server).
 > - El server mantiene un **`service.yaml` delgado** (anclas: repo permitido, registries, allowlists)
->   + `push enable`. Los **env values** vienen de GitHub Secrets (**courier**), se escriben en
->   **tmpfs (`/run/push`)** RAM-only, y el rollback usa snapshots en RAM.
-> - Cada deploy deja un **audit log** redactado (`push logs`).
+>   + `statio enable`. Los **env values** vienen de GitHub Secrets (**courier**), se escriben en
+>   **tmpfs (`/run/statio`)** RAM-only, y el rollback usa snapshots en RAM.
+> - Cada deploy deja un **audit log** redactado (`statio logs`).
 >
 > El diseño completo y los invariantes #14–#24 están en el plan:
 > `~/.claude/plans/analiza-el-levantamento-md-para-cuddly-melody.md`.
@@ -23,7 +23,7 @@ referencias completas. Para la guía de uso, ver el [README](../README.md).
 1. [Arquitectura (2 partes)](#1-arquitectura-2-partes)
 2. [Las 4 restricciones duras](#2-las-4-restricciones-duras)
 3. [El pipeline de deploy](#3-el-pipeline-de-deploy)
-4. [El contrato de wire (push/v1)](#4-el-contrato-de-wire-pushv1)
+4. [El contrato de wire (statio/v1)](#4-el-contrato-de-wire-statiov1)
 5. [Modelo de env de dos archivos](#5-modelo-de-env-de-dos-archivos)
 6. [Modelo de seguridad](#6-modelo-de-seguridad)
 7. [Referencia de archivos](#7-referencia-de-archivos)
@@ -33,21 +33,21 @@ referencias completas. Para la guía de uso, ver el [README](../README.md).
 
 ## 1. Arquitectura (2 partes)
 
-Son 2 partes en un monorepo, atadas por el contrato `push/v1` (`internal/spec`):
+Son 2 partes en un monorepo, atadas por el contrato `statio/v1` (`internal/spec`):
 
 | Parte | Dónde corre | Qué es |
 |-------|-------------|--------|
-| **Servidor** | tu server | el binario `push` como `push agent run` bajo systemd + `push init`/`push env` |
-| **Action** | runner de GitHub Actions | `action/` — composite que baja el **mismo** binario y corre `push deploy` |
+| **Servidor** | tu server | el binario `statio` como `statio agent run` bajo systemd + `statio init`/`statio env` |
+| **Action** | runner de GitHub Actions | `action/` — composite que baja el **mismo** binario y corre `statio deploy` |
 
 La Action baja y corre el mismo binario → la validación/schema viven en **un solo código
-Go**, usado por el agente (autoritativo) y por `push deploy` (fail-fast). El contrato no
+Go**, usado por el agente (autoritativo) y por `statio deploy` (fail-fast). El contrato no
 puede divergir.
 
-**Tailscale embebido (`tsnet`).** El agente importa `tailscale.com/tsnet`: el binario `push`
+**Tailscale embebido (`tsnet`).** El agente importa `tailscale.com/tsnet`: el binario `statio`
 embebe un nodo Tailscale completo (WireGuard userspace + cliente). En el servidor **no se
 instala `tailscaled` ni el CLI** — `ts.Up()` une el nodo a la tailnet y `ts.ListenTLS()`
-expone el endpoint solo ahí. El estado persiste en `/var/lib/push/tsnet`. tsnet corre en
+expone el endpoint solo ahí. El estado persiste en `/var/lib/statio/tsnet`. tsnet corre en
 netstack userspace; los contenedores del host no están en la tailnet (no hace falta: el
 agente habla con NPMplus por localhost y baja la imagen por HTTPS normal). Lo único que opera
 un tercero (Tailscale) es el control plane + DERP — restricción #3.
@@ -102,13 +102,13 @@ El agente corre, por servicio y bajo `flock`, un pipeline ordenado:
 Cloudflare/NPMplus no tira un contenedor sano). El **health corre antes del edge**: un deploy
 roto nunca se expone públicamente, y el rollback queda edge-neutral.
 
-## 4. El contrato de wire (push/v1)
+## 4. El contrato de wire (statio/v1)
 
-Lo que `push deploy` (CI) postea al agente:
+Lo que `statio deploy` (CI) postea al agente:
 
 ```jsonc
 {
-  "apiVersion": "push/v1",
+  "apiVersion": "statio/v1",
   "kind": "DeployRequest",
   "service": "api",
   "image": { "repository": "ghcr.io/accentiostudios/api", "digest": "sha256:<64hex>" },
@@ -141,7 +141,7 @@ allowlist de contenedores locales; caps de env (sin NUL/newline/control chars).
 
 Es la pieza que hace la no-inyección **estructural**, no disciplina de escaping:
 
-- **`interp.env`** → solo `PUSH_IMAGE_DIGEST`. Lo consume `docker compose --env-file` para la
+- **`interp.env`** → solo `STATIO_IMAGE_DIGEST`. Lo consume `docker compose --env-file` para la
   **interpolación** `${...}`.
 - **`app.env`** → el env de la app mergeada. Lo consume el compose **solo** vía `env_file:`
   (lector literal KEY=VALUE, **sin** expansión `${}`).
@@ -192,15 +192,15 @@ Invariantes que **no se deshacen** (varias verificadas por test):
 
 ## 7. Referencia de archivos
 
-### `/etc/push/config.yaml`
+### `/etc/statio/config.yaml`
 
 ```yaml
-hostname: push                     # MagicDNS hostname del agente
+hostname: statio                     # MagicDNS hostname del agente
 listen_port: 443
 tailscale:
-  oauth_file: /etc/push/secrets/oauth
+  oauth_file: /etc/statio/secrets/oauth
   tags: [tag:agent]
-  state_dir: /var/lib/push/tsnet
+  state_dir: /var/lib/statio/tsnet
 cosign:
   oidc_issuer: https://token.actions.githubusercontent.com
   identity: https://github.com/ORG/REPO/.github/workflows/deploy.yml@refs/heads/main
@@ -209,43 +209,43 @@ cosign:
   require_sct: true
   trusted_root_file: ''            # vacío = TUF live; o un trusted_root.json offline
 registry:
-  ghcr_auth_file: /etc/push/secrets/ghcr.json
+  ghcr_auth_file: /etc/statio/secrets/ghcr.json
 npmplus:                           # opcional
   base_url: http://npmplus:81
-  credentials_file: /etc/push/secrets/npmplus.json
+  credentials_file: /etc/statio/secrets/npmplus.json
 cloudflare:                        # opcional
-  credentials_file: /etc/push/secrets/cloudflare.json
+  credentials_file: /etc/statio/secrets/cloudflare.json
   zone_apex: example.com
 dns:
   public_ip: 203.0.113.10
   ttl: 1
   proxied: false
-services_dir: /etc/push/services
-state_dir: /var/lib/push
+services_dir: /etc/statio/services
+state_dir: /var/lib/statio
 log_level: info
 ```
 
 ### Layout en el servidor
 
 ```
-/usr/local/bin/push                          0755
-/etc/push/config.yaml                         0600   config global
-/etc/push/services/<svc>/manifest.yaml        0600   política (la escribes tú)
-/etc/push/services/<svc>/compose.yaml         0600   sustrato (lo escribes tú)
-/etc/push/services/<svc>/env.base.yaml        0600   base env (via `push env`)
-/etc/push/services/<svc>/interp.env           0600   solo PUSH_IMAGE_DIGEST (lo escribe el agente)
-/etc/push/services/<svc>/app.env              0600   env mergeada (lo escribe el agente)
-/etc/push/services/<svc>/secrets/<key>        0600   secretRef de `push env --secret-stdin`
-/etc/push/secrets/{oauth,ghcr.json,npmplus.json,cloudflare.json}   0600
-/var/lib/push/tsnet/                           0700   estado tsnet (persistente)
-/var/lib/push/services/<svc>/state.json        0600   last_good + history
-/var/lib/push/services/<svc>/history/          0600   snapshots de app.env (N=5)
+/usr/local/bin/statio                          0755
+/etc/statio/config.yaml                         0600   config global
+/etc/statio/services/<svc>/manifest.yaml        0600   política (la escribes tú)
+/etc/statio/services/<svc>/compose.yaml         0600   sustrato (lo escribes tú)
+/etc/statio/services/<svc>/env.base.yaml        0600   base env (via `statio env`)
+/etc/statio/services/<svc>/interp.env           0600   solo STATIO_IMAGE_DIGEST (lo escribe el agente)
+/etc/statio/services/<svc>/app.env              0600   env mergeada (lo escribe el agente)
+/etc/statio/services/<svc>/secrets/<key>        0600   secretRef de `statio env --secret-stdin`
+/etc/statio/secrets/{oauth,ghcr.json,npmplus.json,cloudflare.json}   0600
+/var/lib/statio/tsnet/                           0700   estado tsnet (persistente)
+/var/lib/statio/services/<svc>/state.json        0600   last_good + history
+/var/lib/statio/services/<svc>/history/          0600   snapshots de app.env (N=5)
 ```
 
 ### `manifest.yaml` (referencia completa)
 
 ```yaml
-apiVersion: push/v1
+apiVersion: statio/v1
 kind: ServiceDeploy
 name: api                          # == nombre del directorio
 signer:                            # opcional: override de la identidad cosign global
@@ -258,7 +258,7 @@ deploy:
   compose_file: compose.yaml
   project: api
   services: [api]
-  image_env: PUSH_IMAGE_DIGEST     # default
+  image_env: STATIO_IMAGE_DIGEST     # default
 health:
   type: http                       # http | tcp | none
   url: http://127.0.0.1:3000/health   # http: DEBE ser loopback
@@ -281,30 +281,30 @@ rollback:
 ## 8. Referencia de comandos
 
 ```
-push agent run --config /etc/push/config.yaml
+statio agent run --config /etc/statio/config.yaml
 
-push deploy --target HOST --service S --image REPO --digest sha256:...
+statio deploy --target HOST --service S --image REPO --digest sha256:...
             [--env KEY=VALUE]... [--proxy-domain D --proxy-upstream-host H
              --proxy-upstream-port P --proxy-ssl] [--dns-domain D]
             [--spec-stdin] [--strict] [--timeout 5m]
 
-push status --target HOST
-push env set|rm|list <svc> [...]   [--services-dir /etc/push/services]
+statio status --target HOST
+statio env set|rm|list <svc> [...]   [--services-dir /etc/statio/services]
 
-push init server         # interactivo; flags no-interactivos:
+statio init server         # interactivo; flags no-interactivos:
                          #   --hostname --identity --issuer --config
                          #   (--ts-oauth-secret-stdin | --ts-oauth-secret-file F)
-push init integrations   # interactivo
-push init repo           # interactivo; flags: --target --service --image --action-ref --out
-push version
+statio init integrations   # interactivo
+statio init repo           # interactivo; flags: --target --service --image --action-ref --out
+statio version
 ```
 
 ## 9. Referencia de la Action
 
 ```yaml
-- uses: accentiostudios/push/action@v1
+- uses: accentiostudios/statio/action@v1
   with:
-    target: push.<tailnet>.ts.net        # requerido
+    target: statio.<tailnet>.ts.net        # requerido
     service: api                         # requerido
     image: ghcr.io/accentiostudios/api   # requerido
     digest: ${{ steps.build.outputs.digest }}   # requerido
@@ -317,19 +317,19 @@ push version
     dns-domain: api.example.com          # opcional
     ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}       # requerido
     ts-oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}      # requerido
-    push-version: v1
+    statio-version: v1
     timeout: 5m
     strict: "false"
 ```
 
-Composite: baja el binario `push` pinneado, se une a la tailnet (efímero `tag:ci`) y corre
-`push deploy`. Los secretos viajan por env, nunca por argv.
+Composite: baja el binario `statio` pinneado, se une a la tailnet (efímero `tag:ci`) y corre
+`statio deploy`. Los secretos viajan por env, nunca por argv.
 
 ## 10. Layout del código
 
 | Paquete | Responsabilidad |
 |---------|-----------------|
-| `internal/spec` | contrato `push/v1`: tipos + validación cerrada (compartido por ambas partes) |
+| `internal/spec` | contrato `statio/v1`: tipos + validación cerrada (compartido por ambas partes) |
 | `internal/agent` | tsnet server, handler `POST /deploy`, self-check 100.x, WhoIs guard, lint |
 | `internal/verify` | cosign keyless (cosign/v3 + sigstore-go), verify-before-act |
 | `internal/deploy` | pipeline (10 etapas), manifest, state/rollback, health, compose, puller |
@@ -337,7 +337,7 @@ Composite: baja el binario `push` pinneado, se une a la tailnet (efímero `tag:c
 | `internal/proxy` | cliente NPMplus typed (upsert idempotente) |
 | `internal/dns` | cliente Cloudflare (upsert A idempotente) |
 | `internal/config` | config global + validación fail-closed + perms |
-| `internal/client` | `push deploy` (arma y postea el spec; usa `internal/spec`) |
+| `internal/client` | `statio deploy` (arma y postea el spec; usa `internal/spec`) |
 | `internal/cli` | árbol cobra + asistentes `huh` |
 | `internal/fsutil` | escritura atómica + check de perms (linux) |
 

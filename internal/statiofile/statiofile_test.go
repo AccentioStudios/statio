@@ -1,4 +1,4 @@
-package pushfile
+package statiofile
 
 import (
 	"strings"

@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/accentiostudios/push/internal/audit"
-	"github.com/accentiostudios/push/internal/deploy"
-	"github.com/accentiostudios/push/internal/dns"
-	"github.com/accentiostudios/push/internal/env"
-	"github.com/accentiostudios/push/internal/proxy"
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/audit"
+	"github.com/accentiostudios/statio/internal/deploy"
+	"github.com/accentiostudios/statio/internal/dns"
+	"github.com/accentiostudios/statio/internal/env"
+	"github.com/accentiostudios/statio/internal/proxy"
+	"github.com/accentiostudios/statio/internal/spec"
 )
 
 func (a *Agent) handleDeploy(w http.ResponseWriter, r *http.Request) {

@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/fsutil"
 	"github.com/spf13/cobra"
 )
 
-// newEnableCmd implements `push enable <service>` — the explicit ops act of ACCEPTING a
+// newEnableCmd implements `statio enable <service>` — the explicit ops act of ACCEPTING a
 // service on this server and pinning its security anchors (allowed repo, dependency
 // registries, proxy/dns allowlists). A signed deploy can only target an already-accepted
 // service; standing up a new service is never a side effect of a payload (invariant #18).
@@ -41,7 +41,7 @@ func newEnableCmd() *cobra.Command {
 				return err
 			}
 			var b strings.Builder
-			fmt.Fprintf(&b, "apiVersion: push/v1\nkind: ServiceDeploy\nname: %s\n", name)
+			fmt.Fprintf(&b, "apiVersion: statio/v1\nkind: ServiceDeploy\nname: %s\n", name)
 			fmt.Fprintf(&b, "image:\n  repository: %s\n", image)
 			fmt.Fprintf(&b, "max_services: %d\n", maxServices)
 			writeList(&b, "registries", registries)
@@ -61,8 +61,8 @@ func newEnableCmd() *cobra.Command {
 			info("registries dep:  %s", strings.Join(registries, ", "))
 			sectionTitle("Próximos pasos")
 			codeBlock(
-				"push env set "+name+" DATABASE_URL --secret-stdin   # secretos solo de ops (opcional)",
-				"# en el repo: push init repo  → genera push.yaml + el workflow",
+				"statio env set "+name+" DATABASE_URL --secret-stdin   # secretos solo de ops (opcional)",
+				"# en el repo: statio init repo  → genera statio.yaml + el workflow",
 			)
 			return nil
 		},
@@ -75,7 +75,7 @@ func newEnableCmd() *cobra.Command {
 	f.StringSliceVar(&dnsSuffixes, "dns-domain-suffix", nil, "allowed DNS domain suffixes")
 	f.BoolVar(&rollback, "rollback", true, "enable automatic rollback on failed health")
 	f.IntVar(&maxServices, "max-services", 10, "cap on services in a deploy")
-	f.StringVar(&servicesDir, "services-dir", "/etc/push/services", "services directory")
+	f.StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
 	return cmd
 }
 

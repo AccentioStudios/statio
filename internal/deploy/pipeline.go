@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/accentiostudios/push/internal/compose"
-	"github.com/accentiostudios/push/internal/config"
-	"github.com/accentiostudios/push/internal/dns"
-	"github.com/accentiostudios/push/internal/env"
-	"github.com/accentiostudios/push/internal/proxy"
-	"github.com/accentiostudios/push/internal/spec"
+	"github.com/accentiostudios/statio/internal/compose"
+	"github.com/accentiostudios/statio/internal/config"
+	"github.com/accentiostudios/statio/internal/dns"
+	"github.com/accentiostudios/statio/internal/env"
+	"github.com/accentiostudios/statio/internal/proxy"
+	"github.com/accentiostudios/statio/internal/spec"
 )
 
 // Verifier checks the cosign keyless signature of an image digest against the expected

@@ -1,26 +1,26 @@
 [Unit]
-Description=push deploy agent (tailnet-only)
+Description=statio deploy agent (tailnet-only)
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service
 
 [Service]
 Type=notify
-ExecStart=/usr/local/bin/push agent run --config {{.ConfigPath}}
+ExecStart=/usr/local/bin/statio agent run --config {{.ConfigPath}}
 Restart=on-failure
 RestartSec=2s
 WatchdogSec=30s
 
-# /run/push is tmpfs (RAM): per-service compose + app env files live here so app secrets
+# /run/statio is tmpfs (RAM): per-service compose + app env files live here so app secrets
 # never touch persistent disk. Cleared on stop/reboot — a recreate then requires a redeploy.
-RuntimeDirectory=push
+RuntimeDirectory=statio
 RuntimeDirectoryMode=0700
 
 # docker.sock is root-equivalent, so the agent runs as root; the compensating controls
 # are cosign verify-before-act and this sandbox shrinking the agent's own attack surface.
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/etc/push /var/lib/push /run/docker.sock /run/push
+ReadWritePaths=/etc/statio /var/lib/statio /run/docker.sock /run/statio
 ProtectHome=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes

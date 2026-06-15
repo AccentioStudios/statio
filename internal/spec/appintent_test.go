@@ -36,7 +36,7 @@ func TestAppIntentRejections(t *testing.T) {
 		"bad-volume-driver": `[{"name":"api","volumes":[{"name":"v","path":"/d","driver_opts":{"o":"bind"}}]}]`,
 		"host-path-volume":  `[{"name":"api","volumes":[{"name":"v","path":"rel/ative"}]}]`,
 		"depends-unknown":   `[{"name":"api","depends_on":["ghost"]}]`,
-		"reserved-env":      `[{"name":"api","env":["PUSH_X"]}]`,
+		"reserved-env":      `[{"name":"api","env":["STATIO_X"]}]`,
 		"bad-health-path":   `[{"name":"api","health":{"path":"no-slash"}}]`,
 		"shell-port":        `[{"name":"api","ports":["0.0.0.0:80:80"]}]`,
 	}

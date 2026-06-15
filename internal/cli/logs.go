@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/accentiostudios/push/internal/audit"
-	"github.com/accentiostudios/push/internal/client"
+	"github.com/accentiostudios/statio/internal/audit"
+	"github.com/accentiostudios/statio/internal/client"
 	"github.com/spf13/cobra"
 )
 
@@ -56,7 +56,7 @@ func newLogsCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&target, "target", "", "fetch from a remote agent over the tailnet instead of the local file")
-	f.StringVar(&stateDir, "state-dir", "/var/lib/push", "state directory (local read)")
+	f.StringVar(&stateDir, "state-dir", "/var/lib/statio", "state directory (local read)")
 	f.BoolVar(&jsonOut, "json", false, "emit raw JSON records")
 	f.IntVar(&limit, "limit", 20, "max records to show")
 	return cmd

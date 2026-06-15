@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/accentiostudios/push/internal/deploy"
+	"github.com/accentiostudios/statio/internal/deploy"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	sgverify "github.com/sigstore/sigstore-go/pkg/verify"
 )

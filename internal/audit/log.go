@@ -1,5 +1,5 @@
 // Package audit writes a per-deploy, append-only JSONL record to the server so the CLI
-// (`push logs`) and operators can see what deployed, when, by whom, and how each stage
+// (`statio logs`) and operators can see what deployed, when, by whom, and how each stage
 // fared. Records are REDACTED by construction: they are built from the already-sanitized
 // deploy stages (no env values, no Bearer tokens, no raw compose output — invariant #24).
 package audit
@@ -61,7 +61,7 @@ func Append(path string, rec Record) error {
 	return nil
 }
 
-// Tail returns up to n most-recent records (oldest-first), for `push logs` and the
+// Tail returns up to n most-recent records (oldest-first), for `statio logs` and the
 // read-only endpoint.
 func Tail(path string, n int) ([]Record, error) {
 	f, err := os.Open(path)

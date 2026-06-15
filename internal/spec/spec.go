@@ -1,5 +1,5 @@
-// Package spec defines the push/v1 wire contract: the JSON DeployRequest that the
-// GitHub Action (via `push deploy`) POSTs to the agent over the tailnet, plus the
+// Package spec defines the statio/v1 wire contract: the JSON DeployRequest that the
+// GitHub Action (via `statio deploy`) POSTs to the agent over the tailnet, plus the
 // closed-schema validation shared by both ends.
 //
 // This package is the single source of truth for the contract. It is imported by
@@ -14,7 +14,7 @@ package spec
 
 const (
 	// APIVersion is the only accepted apiVersion value.
-	APIVersion = "push/v1"
+	APIVersion = "statio/v1"
 	// Kind is the only accepted kind value.
 	Kind = "DeployRequest"
 )

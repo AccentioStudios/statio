@@ -7,15 +7,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/accentiostudios/push/internal/env"
-	"github.com/accentiostudios/push/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/env"
+	"github.com/accentiostudios/statio/internal/fsutil"
 	"github.com/spf13/cobra"
 )
 
 func newEnvCmd() *cobra.Command {
 	var servicesDir string
 	cmd := &cobra.Command{Use: "env", Short: "Manage a service's server-side base env"}
-	cmd.PersistentFlags().StringVar(&servicesDir, "services-dir", "/etc/push/services", "services directory")
+	cmd.PersistentFlags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
 
 	basePath := func(svc string) string { return filepath.Join(servicesDir, svc, "env.base.yaml") }
 

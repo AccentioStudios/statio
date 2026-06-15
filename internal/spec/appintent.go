@@ -246,8 +246,8 @@ func validateEnvKey(k string) error {
 	if !envKeyRe.MatchString(k) {
 		return newErr("env_key", "env key %q is invalid", k)
 	}
-	if strings.HasPrefix(k, "PUSH_") {
-		return newErr("env_key", "env key %q uses the reserved PUSH_ prefix", k)
+	if strings.HasPrefix(k, "STATIO_") {
+		return newErr("env_key", "env key %q uses the reserved STATIO_ prefix", k)
 	}
 	return nil
 }
