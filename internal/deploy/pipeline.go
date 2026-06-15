@@ -395,17 +395,7 @@ func inZone(fqdn, apex string) bool {
 }
 
 func (d *Deployer) effectiveSigner() EffectiveSigner {
-	s := EffectiveSigner{OIDCIssuer: d.Cfg.Cosign.OIDCIssuer, Identity: d.Cfg.Cosign.Identity, IdentityRegexp: d.Cfg.Cosign.IdentityRegexp}
-	if sg := d.Manifest.Signer; sg != nil {
-		if sg.OIDCIssuer != "" {
-			s.OIDCIssuer = sg.OIDCIssuer
-		}
-		if sg.Identity != "" || sg.IdentityRegexp != "" {
-			s.Identity = sg.Identity
-			s.IdentityRegexp = sg.IdentityRegexp
-		}
-	}
-	return s
+	return d.Manifest.EffectiveSigner(d.Cfg.Cosign.OIDCIssuer, d.Cfg.Cosign.Identity, d.Cfg.Cosign.IdentityRegexp)
 }
 
 func (d *Deployer) proxySpec(req *spec.DeployRequest) proxy.HostSpec {

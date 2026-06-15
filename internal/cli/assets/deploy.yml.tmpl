@@ -46,5 +46,4 @@ jobs:
           service: {{.Service}}
           image: {{.Image}}
           digest: ${{ inputs.digest || steps.build.outputs.digest }}
-          ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          ts-oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}

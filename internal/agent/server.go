@@ -9,19 +9,38 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/accentiostudios/statio/internal/config"
-	"github.com/accentiostudios/statio/internal/deploy"
 	"github.com/accentiostudios/statio/internal/verify"
 	"tailscale.com/tsnet"
 )
+
+// readTailscaleAuthKey returns the credential tsnet uses to join the tailnet. The file is the
+// JSON `{client_id, client_secret}` written by `statio init server` (the OAuth client secret
+// doubles as a node auth key for the client's tags). For backward compatibility it also accepts
+// a legacy file containing the raw secret string.
+func readTailscaleAuthKey(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var j struct {
+		ClientSecret string `json:"client_secret"`
+	}
+	if json.Unmarshal(raw, &j) == nil && j.ClientSecret != "" {
+		return j.ClientSecret, nil
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
 
 // Agent owns the tsnet node and HTTP server.
 type Agent struct {
@@ -45,27 +64,17 @@ func New(cfg *config.Config, log *slog.Logger) *Agent {
 	}
 }
 
-// globalSigner is the trusted identity that must have signed the deploy payload. It is the
-// single server-side anchor for "who may deploy to this agent at all".
-func (a *Agent) globalSigner() deploy.EffectiveSigner {
-	return deploy.EffectiveSigner{
-		OIDCIssuer:     a.cfg.Cosign.OIDCIssuer,
-		Identity:       a.cfg.Cosign.Identity,
-		IdentityRegexp: a.cfg.Cosign.IdentityRegexp,
-	}
-}
-
 // Run starts the tsnet node, performs the tailnet-only self-check, and serves until ctx
 // is cancelled.
 func (a *Agent) Run(ctx context.Context) error {
-	authKey, err := os.ReadFile(a.cfg.Tailscale.OAuthFile)
+	authKey, err := readTailscaleAuthKey(a.cfg.Tailscale.OAuthFile)
 	if err != nil {
 		return fmt.Errorf("read tailscale credential: %w", err)
 	}
 	a.ts = &tsnet.Server{
 		Hostname:  a.cfg.Hostname,
 		Dir:       a.cfg.Tailscale.StateDir,
-		AuthKey:   string(authKey),
+		AuthKey:   authKey,
 		Ephemeral: false, // the agent is a persistent node; MUST NOT be reaped
 		Logf:      func(string, ...any) {},
 		UserLogf:  func(format string, args ...any) { a.log.Debug(fmt.Sprintf(format, args...)) },
@@ -82,6 +91,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	// Resolve our MagicDNS FQDN as the audience a signed payload must target.
 	if status.Self != nil && status.Self.DNSName != "" {
 		a.audience = strings.TrimSuffix(status.Self.DNSName, ".")
+	}
+	// Persist the resolved audience (non-secret) so `statio app add` can print the right
+	// target without querying the tailnet.
+	if a.audience != "" {
+		_ = os.MkdirAll(a.cfg.StateDir, 0o755)
+		_ = os.WriteFile(filepath.Join(a.cfg.StateDir, "audience"), []byte(a.audience+"\n"), 0o644)
 	}
 	a.log.Info("agent joined tailnet", "hostname", a.cfg.Hostname, "audience", a.audience, "ips", status.TailscaleIPs)
 

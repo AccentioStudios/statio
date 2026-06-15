@@ -14,10 +14,9 @@
 - uses: {{.ActionRef}}
   with:
     target:  {{.Target}}          # hostname del agente (= audience firmado)
-    service: {{.Service}}         # debe estar habilitado en el server (statio enable)
-    image:   {{.Image}}           # debe coincidir con statio enable --image
+    service: {{.Service}}         # debe estar aceptado en el server (statio app add)
+    image:   {{.Image}}           # debe coincidir con statio app add --image
     digest:  ${{ steps.build.outputs.digest }}
     env: |                        # un KEY=${{ secrets.KEY }} por cada env que pide tu statio.yaml
       DATABASE_URL=${{ secrets.DATABASE_URL }}
-    ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-    ts-oauth-secret:    ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+    ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}   # la auth key que creó statio init server

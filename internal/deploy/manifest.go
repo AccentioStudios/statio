@@ -39,11 +39,33 @@ type ServiceManifest struct {
 	dir string // absolute service dir, set on load
 }
 
-// SignerConfig overrides the global cosign identity for this service's IMAGE.
+// SignerConfig is the per-service cosign identity that must have signed BOTH this service's
+// deploy payload and its image. It overrides the (optional) global cosign config, so a single
+// server can accept deploys from many different repos/orgs — each app pinned to its own
+// owner/repo/workflow/branch.
 type SignerConfig struct {
 	OIDCIssuer     string `yaml:"oidc_issuer"`
 	Identity       string `yaml:"identity"`
 	IdentityRegexp string `yaml:"identity_regexp"`
+}
+
+// EffectiveSigner resolves the cosign identity for this service: the per-service signer
+// override, falling back to the provided global values. If neither is set the result is a
+// zero/partial signer and the verifier fails closed (verify/blob.go never verifies against an
+// empty identity). Used for BOTH payload verification (agent handler) and image verification
+// (the pipeline), so the two can never disagree.
+func (m *ServiceManifest) EffectiveSigner(globalIssuer, globalIdentity, globalRegexp string) EffectiveSigner {
+	s := EffectiveSigner{OIDCIssuer: globalIssuer, Identity: globalIdentity, IdentityRegexp: globalRegexp}
+	if sg := m.Signer; sg != nil {
+		if sg.OIDCIssuer != "" {
+			s.OIDCIssuer = sg.OIDCIssuer
+		}
+		if sg.Identity != "" || sg.IdentityRegexp != "" {
+			s.Identity = sg.Identity
+			s.IdentityRegexp = sg.IdentityRegexp
+		}
+	}
+	return s
 }
 
 // ImageConfig pins the allowed repository for your-app (the image-less service). The event

@@ -29,6 +29,16 @@ func TestValidateIdentityExclusive(t *testing.T) {
 	}
 }
 
+func TestValidateNoGlobalIdentity(t *testing.T) {
+	c := valid()
+	// No global identity is allowed: each app pins its own signer via `statio app add`.
+	c.Cosign.Identity = ""
+	c.Cosign.IdentityRegexp = ""
+	if err := c.Validate(); err != nil {
+		t.Fatalf("missing global identity must be allowed (per-app signers): %v", err)
+	}
+}
+
 func TestValidateUnanchoredRegexp(t *testing.T) {
 	c := valid()
 	c.Cosign.Identity = ""

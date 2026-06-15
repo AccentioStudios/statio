@@ -155,8 +155,11 @@ func (cs *CosignConfig) validate() error {
 	}
 	hasID := cs.Identity != ""
 	hasRe := cs.IdentityRegexp != ""
-	if hasID == hasRe {
-		return fmt.Errorf("config: set exactly one of cosign.identity or cosign.identity_regexp")
+	// At most one global identity. Neither is allowed: each accepted service pins its own
+	// signer (manifest.signer), so a single server can host apps from many repos/orgs. A
+	// service with no signer AND no global identity fails closed at verify time.
+	if hasID && hasRe {
+		return fmt.Errorf("config: set at most one of cosign.identity or cosign.identity_regexp")
 	}
 	if hasRe {
 		if !anchoredRe.MatchString(cs.IdentityRegexp) {

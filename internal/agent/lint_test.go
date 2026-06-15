@@ -44,9 +44,11 @@ func TestNoPublicListeners(t *testing.T) {
 	}
 }
 
-// TestByteEqualityDiscipline enforces invariant #15: the handler must verify the EXACT
-// bytes it decodes. It asserts VerifyBlob runs before DecodeBytes and that no marshal
-// happens between them (which would make the verified document differ from the applied one).
+// TestByteEqualityDiscipline enforces invariant #15 under the per-service-signer flow: the
+// handler decodes the payload to PEEK the service name (to select that service's signer),
+// verifies the EXACT same bytes, and only then acts. We assert: both VerifyBlob and DecodeBytes
+// operate on the same buffer (env.Payload); verification runs before any deploy effect (d.Run);
+// and the payload is never re-marshalled in the handler (which would break byte-equality).
 func TestByteEqualityDiscipline(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(moduleRoot(t), "internal", "agent", "handler.go"))
 	if err != nil {
@@ -55,14 +57,24 @@ func TestByteEqualityDiscipline(t *testing.T) {
 	src := string(data)
 	vi := strings.Index(src, "VerifyBlob(")
 	di := strings.Index(src, "DecodeBytes(")
-	if vi < 0 || di < 0 {
-		t.Fatal("handler must call VerifyBlob then DecodeBytes")
+	ri := strings.Index(src, "d.Run(")
+	if vi < 0 || di < 0 || ri < 0 {
+		t.Fatal("handler must call DecodeBytes, VerifyBlob and d.Run")
 	}
-	if vi > di {
-		t.Fatal("VerifyBlob must run BEFORE DecodeBytes (verify-before-decode)")
+	// Verify-before-act: the signature gate must run before the deploy executes.
+	if vi > ri {
+		t.Fatal("VerifyBlob must run BEFORE d.Run (verify-before-act)")
 	}
-	if strings.Contains(src[vi:di], "Marshal") {
-		t.Error("no (re-)marshal may occur between VerifyBlob and DecodeBytes (breaks byte-equality)")
+	// Byte-equality: the verified bytes and the decoded bytes are the SAME buffer (env.Payload).
+	if !strings.Contains(src, "VerifyBlob(r.Context(), env.Payload,") {
+		t.Error("VerifyBlob must verify env.Payload (the exact decoded bytes)")
+	}
+	if !strings.Contains(src, "DecodeBytes(env.Payload)") {
+		t.Error("DecodeBytes must decode env.Payload (the exact verified bytes)")
+	}
+	// No re-marshal of the payload anywhere in the handler.
+	if strings.Contains(src, "Marshal") {
+		t.Error("the handler must not (re-)marshal the payload (breaks byte-equality)")
 	}
 }
 

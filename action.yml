@@ -26,11 +26,8 @@ inputs:
     description: "Per-deploy env overrides as KEY=VALUE lines (source from ${{ secrets.* }} so GitHub masks them)"
     required: false
     default: ""
-  ts-oauth-client-id:
-    description: "Tailscale OAuth client id"
-    required: true
-  ts-oauth-secret:
-    description: "Tailscale OAuth client secret"
+  ts-authkey:
+    description: "Tailscale tag:ci auth key (minted by `statio init server`; store as a GitHub secret)"
     required: true
   statio-version:
     description: "Version of the statio binary to download (a bare major like v1, or an exact vX.Y.Z, or latest)"
@@ -59,9 +56,7 @@ runs:
     - name: Join tailnet (ephemeral tag:ci node)
       uses: tailscale/github-action@v3
       with:
-        oauth-client-id: ${{ inputs.ts-oauth-client-id }}
-        oauth-secret: ${{ inputs.ts-oauth-secret }}
-        tags: tag:ci
+        authkey: ${{ inputs.ts-authkey }}
     - name: Deploy
       shell: bash
       env:

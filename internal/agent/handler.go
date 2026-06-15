@@ -23,13 +23,10 @@ func (a *Agent) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
 		return
 	}
-	// 2. Verify the cosign bundle over the EXACT payload bytes BEFORE decoding them (#15/#16).
-	if err := a.verifier.VerifyBlob(r.Context(), env.Payload, env.Bundle, a.globalSigner()); err != nil {
-		a.log.Warn("payload signature rejected", "err", err)
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "payload signature verification failed"})
-		return
-	}
-	// 3. Decode the SAME verified bytes (no re-marshal between verify and decode).
+	// 2. Decode the payload to learn WHICH service it targets — still UNTRUSTED at this point.
+	//    Reading the service name only selects which per-service signer to verify against; an
+	//    attacker can NAME a service but cannot forge that service's signature. The exact same
+	//    bytes are verified in step 4, so byte-equality holds (#15) and nothing is acted on yet.
 	req, err := spec.DecodeBytes(env.Payload)
 	if err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
@@ -46,6 +43,17 @@ func (a *Agent) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "service misconfigured"})
 		return
 	}
+	// 3. Resolve THIS service's signer (per-service manifest override, else the optional global).
+	//    This is what lets one server accept deploys from many different repos/orgs.
+	signer := m.EffectiveSigner(a.cfg.Cosign.OIDCIssuer, a.cfg.Cosign.Identity, a.cfg.Cosign.IdentityRegexp)
+	// 4. Verify the cosign bundle over the EXACT payload bytes against that signer, BEFORE any
+	//    effect (#15/#16). Empty identity fails closed in VerifyBlob. After this passes, `req`
+	//    (decoded from the same verified bytes) is trusted.
+	if err := a.verifier.VerifyBlob(r.Context(), env.Payload, env.Bundle, signer); err != nil {
+		a.log.Warn("payload signature rejected", "service", req.Service, "err", err)
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "payload signature verification failed"})
+		return
+	}
 	d, err := a.buildDeployer(m)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "agent misconfigured"})
@@ -57,13 +65,13 @@ func (a *Agent) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	if runErr != nil {
 		status = statusForError(runErr)
 	}
-	a.writeAudit(req, res, callerFrom(r.Context()), time.Since(start))
+	a.writeAudit(req, res, signer.Identity, callerFrom(r.Context()), time.Since(start))
 	writeJSON(w, status, res)
 }
 
 // writeAudit appends a redacted per-deploy record. res.Stages is already sanitized (no
 // secret values / raw output), so the record is safe to persist and serve (#24).
-func (a *Agent) writeAudit(req *spec.DeployRequest, res *deploy.Result, src string, dur time.Duration) {
+func (a *Agent) writeAudit(req *spec.DeployRequest, res *deploy.Result, identity, src string, dur time.Duration) {
 	stages := make([]audit.Stage, 0, len(res.Stages))
 	for _, s := range res.Stages {
 		stages = append(stages, audit.Stage{Stage: s.Stage, Status: s.Status, Code: s.Code, Message: s.Message, Hint: s.Hint})
@@ -73,7 +81,7 @@ func (a *Agent) writeAudit(req *spec.DeployRequest, res *deploy.Result, src stri
 		Service:    req.Service,
 		DeploySeq:  req.DeploySeq,
 		DeployID:   req.DeployID,
-		Identity:   a.cfg.Cosign.Identity,
+		Identity:   identity,
 		Src:        src,
 		Digest:     req.Image.Digest,
 		Outcome:    res.State,
