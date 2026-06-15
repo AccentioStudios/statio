@@ -109,13 +109,35 @@ func newInitServerCmd() *cobra.Command {
 				); err != nil {
 					return err
 				}
-				sectionTitle("Identidad de firma (cosign)")
-				info("Define QUÉ workflow de GitHub puede desplegar. Owner = tu usuario u organización (es lo mismo).")
-				info("Tip: ejecuta 'statio init repo' en tu repo para ver tu identidad exacta y pegarla aquí.")
+				sectionTitle("¿Quién puede desplegar a este servidor? (firma cosign)")
+				info("Esto NO configura tu repo. Le dices a ESTE servidor qué repo + workflow + rama de GitHub")
+				info("tienen permiso de desplegar aquí: cada deploy se firma con esa identidad (cosign) y el")
+				info("agente la verifica. Debe coincidir EXACTO con tu repo real.")
+				info("Tip: ejecuta 'statio init repo' en tu repo y te imprime esta identidad lista para pegar.")
+
+				repoField := huh.NewInput().
+					Title("Repositorio que autorizas a desplegar").
+					Description("El repo ESPECÍFICO en formato owner/repo — no solo la organización. Ej: accentiostudios/api. También puedes pegar la URL completa del repo.").
+					Placeholder("accentiostudios/api").
+					Value(&repoInput).
+					Validate(func(s string) error {
+						if _, _, err := parseOwnerRepo(s); err != nil {
+							return fmt.Errorf("escribe owner/repo (ej: accentiostudios/api), no solo la organización")
+						}
+						return nil
+					})
+				if err := runForm(repoField); err != nil {
+					return err
+				}
+
+				info("Lo de abajo son reglas de ESTE servidor. Si no estás seguro, deja los valores por defecto.")
 				if err := runForm(
-					inputField("Repositorio de GitHub", "owner/repo o la URL. Ej: accentiostudios/api (org) o tu-usuario/mi-api (cuenta personal). Puedes pegar la URL del repo.", "accentiostudios/api", &repoInput, true),
-					inputField("Archivo del workflow", "El archivo en .github/workflows/ que despliega", "deploy.yml", &wf, true),
-					inputField("Branch", "La rama autorizada a desplegar (solo esa rama deploya)", "main", &branch, true),
+					inputField("Archivo del workflow de deploy",
+						"Solo el nombre del .yml dentro de .github/workflows/ del repo que hace el deploy. No tienes que hacer nada aquí: el que genera 'statio init repo' se llama deploy.yml.",
+						"deploy.yml", &wf, true),
+					inputField("Rama autorizada",
+						"Este servidor solo aceptará deploys que vengan de esta rama del repo. Normalmente main.",
+						"main", &branch, true),
 				); err != nil {
 					return err
 				}
