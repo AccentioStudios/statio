@@ -6,10 +6,13 @@ sidebar:
 ---
 
 ```sh
-statio init server          # wizard: configure the agent
+statio init server          # wizard: configure the agent + mint the shared CI auth key
 statio init integrations    # wizard: NPMplus + Cloudflare + public IP
 statio init repo            # wizard: statio.yaml + how to call the Action
-statio enable [svc]         # wizard: accept a service and pin its anchors
+
+statio app add [name]       # wizard: accept an app — image repo, signer identity, domains
+statio app list             # list the accepted apps
+statio app rm <name>        # stop accepting an app's deploys
 
 statio env set <svc> KEY=VALUE [--protected] [--required]
 statio env set <svc> KEY --secret-stdin          # ops secret via stdin
@@ -24,9 +27,9 @@ statio doctor                                    # environment diagnostics
 statio version                                   # or: statio --version
 ```
 
-The wizards (`init server`, `init integrations`, `init repo`, `enable`) are interactive: run them
+The wizards (`init server`, `init integrations`, `init repo`, `app add`) are interactive: run them
 without flags and they guide you. In CI/scripts they accept flags and secrets via `--*-stdin`; the
-Action uses the flag form automatically.
+Action uses the flag form automatically. (`statio enable` is a deprecated alias of `statio app add`.)
 
 ## Self-update & diagnostics
 

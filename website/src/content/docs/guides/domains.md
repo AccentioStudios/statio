@@ -19,11 +19,11 @@ sudo statio init integrations    # asks for NPMplus and Cloudflare, step by step
 
 ## 2. Allow the domain when you enable the service
 
-The allowed domain is a **server-side anchor**. In `sudo statio enable`, answer **yes** to "Expose
+The allowed domain is a **server-side anchor**. In `sudo statio app add`, answer **yes** to "Expose
 a public domain?" and enter the suffix. The non-interactive form:
 
 ```sh
-sudo statio enable api --image ghcr.io/accentiostudios/api \
+sudo statio app add api --image ghcr.io/accentiostudios/api --repo accentiostudios/api \
   --proxy-domain-suffix example.com --proxy-upstream api \
   --dns-domain-suffix example.com
 ```

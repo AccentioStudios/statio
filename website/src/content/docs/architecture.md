@@ -94,8 +94,11 @@ CI sends a signed **envelope**; the agent verifies it before decoding anything:
 ```
 
 A missing or empty `bundle` is a downgrade attempt and **fails closed** — there is no unsigned path.
-The agent verifies the cosign bundle over the exact `payload` bytes, then decodes **those same bytes**
-as a `DeployRequest` (never re-marshalled between verify and decode — that would break byte-equality):
+The agent decodes the payload to **peek** the `service` name (still untrusted — that only selects
+*which* app's signer to check), looks up that app's manifest, then verifies the cosign bundle over the
+**exact same `payload` bytes** against that app's signer, and only then acts on the decoded request.
+Naming a service you don't control gets you nowhere: you can't forge that app's signature. The bytes
+are never re-marshalled between verify and decode (byte-equality):
 
 ```jsonc
 {
@@ -154,9 +157,11 @@ Invariants that **don't get undone** (several are test-enforced):
    position.
 2. **`ListenFunnel` forbidden + lint.** `go test` fails if `.ListenFunnel(` or `net.Listen(` appears,
    plus a `100.64.0.0/10` self-check at startup.
-3. **OAuth client, not an auth key.** Separate clients for the agent and CI.
-4. **Exact cosign identity by default.** A regexp is only allowed if anchored and without a wildcard
-   over owner/repo; fail-closed if issuer/identity is missing.
+3. **Server-provisioned CI key.** The agent holds one Tailscale OAuth client (`auth_keys`+`devices`)
+   to join the tailnet and to **mint** the shared, ephemeral `tag:ci` auth key CI uses — the operator
+   never hand-builds CI credentials.
+4. **Exact cosign identity, per app.** Each accepted app pins its own signer (manifest); a regexp is
+   only allowed if anchored and without a wildcard over owner/repo; fail-closed if no identity matches.
 5. **Post-pull digest re-check + repo-equality** (the event picks *which* signed digest of an allowed
    image, never an arbitrary image).
 6. **Signed envelope mandatory.** A missing bundle → 403, fail-closed; no unsigned path exists.
@@ -171,13 +176,17 @@ Invariants that **don't get undone** (several are test-enforced):
 12. **`docker.sock` = root-equivalent** (inherent): an agent exploit before the cosign gate is host
     root. The cosign gate + the systemd sandbox are the compensating controls.
 
-### 6.1 Why enable is separate from init server
+### 6.1 Each app pins its own signer
 
-`init server` configures the agent once (signing identity, tailnet). `enable` accepts a service and
-pins its anchors, and is repeated per service. They are separate by design: a signed deploy **can
-never create a new service on its own** — it can only deploy to one ops already accepted with
-`enable`. If CI is compromised, the attacker is bounded to the enabled image repo and domains, and
-can't plant arbitrary services.
+`init server` only brings up the agent (Tailscale + the OIDC issuer) — it pins **no** repo. Each app
+is accepted separately with `statio app add`, which records that app's **cosign signer**
+(owner/repo/workflow/branch) in its manifest. So one server can host apps from many different repos
+and even organizations, each independently anchored.
+
+When a deploy arrives the agent peeks the (untrusted) `service` name only to select that app's
+signer, then verifies the signed payload against it (§4). A signed deploy can therefore only (a)
+target an app you already accepted — it can never stand one up (no auto-provisioning) — and (b) be
+signed by *that app's* repo. If one repo's CI is compromised, the blast radius is that one app.
 
 ### 6.2 Footguns of the signing identity
 
@@ -190,18 +199,29 @@ The identity is matched **exactly**. The three mistakes that cause `verify` to f
 
 ### 6.3 Identity-compromise runbook
 
-A single cosign identity signs **both image and payload**. If that repo/workflow is compromised, an
-attacker can sign code + config. Mitigations and response:
+Each app's signer signs **both its image and its payload**. If that repo/workflow is compromised, an
+attacker can sign code + config **for that one app**. Mitigations and response:
 
-- **Prevent:** branch protection + required reviews on the signing repo/ref; watch every deploy
+- **Prevent:** branch protection + required reviews on each app's signing repo/ref; watch every deploy
   (`statio logs`).
 - **Rotate a leaked secret** (without waiting for CI): `statio env set <svc> KEY --secret-stdin` on the
   server (the ops base is the break-glass path).
-- **Rotate the trusted identity:** change `cosign.identity` in `/etc/statio/config.yaml`, distribute to
-  all agents, restart `statio-agent`.
+- **Rotate an app's signer:** re-run `statio app add <app>` with the new repo (or edit its manifest
+  `signer`). Manifests are read per deploy, so it takes effect on the next deploy — no restart.
+- **Rotate the CI key:** re-run `statio init server` to mint a fresh `tag:ci` key, update the
+  `STATIO_TS_AUTHKEY` secret.
 - **Bounded by design:** even with a signed payload, DNS points only at your pinned IP, the upstream
   and domains are allowlisted, and the generated compose can't escalate to host root. The blast radius
-  is "your own repo deployed something".
+  is "that app's own repo deployed something".
+
+### 6.6 The CI key and the bootstrap token (tradeoff)
+
+The shared `tag:ci` auth key is what lets CI *reach* the agent; it grants no deploy power on its own
+(the cosign signer is the real gate), so one key safely serves every repo. To mint it, the agent
+stores one Tailscale OAuth client with `auth_keys` scope — a broader credential than a join-only key:
+if the agent (already root-equivalent via `docker.sock`) is compromised, that token could add nodes
+to your tailnet. Accepted in exchange for never hand-provisioning CI credentials; the alternative
+(a separate join-only client) is left as future work.
 
 ### 6.4 Secrets at-rest (the honest claim)
 
@@ -217,12 +237,13 @@ auth, no API). The image and code stay private. But keyless signing records the 
 (owner/repo/workflow) in the public transparency log (Rekor): the repo **name** becomes public even if
 the repo is private.
 
-## 7. Server-side anchors (`statio enable`)
+## 7. Server-side anchors (`statio app add`)
 
-`statio enable` writes a per-service manifest under `/etc/statio/services/<svc>/` pinning: the allowed
-image **repository** (repo-equality), the dependency **registry allowlist**, the proxy/dns **domain
-suffix allowlists** and **upstream allowlist**, `max_services`, and the rollback policy. A deploy is
-compared against these — it can never widen them.
+`statio app add` writes a per-app manifest under `/etc/statio/services/<app>/` pinning: the **cosign
+signer** (owner/repo/workflow/branch — who may deploy this app), the allowed image **repository**
+(repo-equality), the dependency **registry allowlist**, the proxy/dns **domain suffix allowlists** and
+**upstream allowlist**, `max_services`, and the rollback policy. A deploy is compared against these —
+it can never widen them. (`statio enable` is a deprecated alias of `statio app add`.)
 
 ## 8. Env courier & tmpfs
 

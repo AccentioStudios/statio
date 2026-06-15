@@ -18,11 +18,10 @@ Add this step **after** you build, push and sign your image:
 - uses: accentiostudios/statio@v1
   with:
     target: statio.your-tailnet.ts.net          # the agent's MagicDNS host (= signed audience)
-    service: api                                # must be enabled on the server
-    image: ghcr.io/accentiostudios/api          # must match `statio enable`
+    service: api                                # must be accepted on the server (statio app add)
+    image: ghcr.io/accentiostudios/api          # must match `statio app add --image`
     digest: ${{ steps.build.outputs.digest }}
-    ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-    ts-oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+    ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}  # minted by `statio init server`
     env: |                                      # optional per-deploy env, from GitHub Secrets
       DATABASE_URL=${{ secrets.DATABASE_URL }}
 ```
@@ -86,8 +85,7 @@ jobs:
           service: api
           image: ghcr.io/accentiostudios/api
           digest: ${{ inputs.digest || steps.build.outputs.digest }}
-          ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          ts-oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}
           env: |
             DATABASE_URL=${{ secrets.DATABASE_URL }}
 ```
@@ -100,12 +98,12 @@ to your existing one, and never touches your file.
 | Input | Required | What it is |
 |---|---|---|
 | `target` | yes | The agent's MagicDNS host (e.g. `statio.your-tailnet.ts.net`). It is the **signed audience** — the deploy is bound to that server. |
-| `service` | yes | The service slot; must be enabled on the server (`statio enable`). |
-| `image` | yes | Your image repository; must match `statio enable` (repo-equality). |
+| `service` | yes | The app slot; must be accepted on the server (`statio app add`). |
+| `image` | yes | Your image repository; must match `statio app add --image` (repo-equality). |
 | `digest` | yes | The digest to deploy (`steps.build.outputs.digest`, or an old one for rollback). |
 | `env` | no | Per-deploy overrides, `KEY=${{ secrets.KEY }}` lines. GitHub masks them. |
 | `statio-file` | no | Path to `statio.yaml` (default `statio.yaml`). |
-| `ts-oauth-client-id` / `ts-oauth-secret` | yes | The Tailscale **`tag:ci`** OAuth client (distinct from the server's `tag:agent`). |
+| `ts-authkey` | yes | The Tailscale **`tag:ci`** auth key minted by `statio init server` (the `STATIO_TS_AUTHKEY` secret). |
 | `statio-version` | no | Binary version to download (default `v1`; a bare major, exact `vX.Y.Z`, or `latest`). |
 | `timeout` | no | Deploy timeout (default `5m`). |
 | `strict` | no | Treat `success_degraded` as a failure (default `false`). |

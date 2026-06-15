@@ -25,7 +25,7 @@ services:
       - { name: pgdata, path: /var/lib/postgresql/data }
 ```
 
-Run `statio enable` once per app service on the server. Dependencies don't need `enable` — they're
+Run `statio app add` once per app service on the server. Dependencies don't need it — they're
 confined by the generated compose template and the registry allowlist. A service without `ports`
 stays on the internal compose network only (e.g. Postgres is never published).
 

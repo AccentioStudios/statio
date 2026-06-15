@@ -26,9 +26,7 @@ Tailscale is the **private channel CI uses to reach the agent** — it replaces 
 never opens a public deploy port. It is **not** how your app is served (that's your reverse proxy on
 `80/443`).
 
-In the [Tailscale admin console](https://login.tailscale.com/admin/settings/oauth) create **two
-OAuth clients**: one tagged `tag:agent` (for the server) and one tagged `tag:ci` (for CI). Paste
-this ACL under *Access controls*:
+Paste this ACL under *Access controls* (only `tag:ci` can reach the agent, on one port):
 
 ```json
 {
@@ -38,12 +36,17 @@ this ACL under *Access controls*:
 }
 ```
 
-This is the only manual step: only `tag:ci` can talk to the agent, and only on one port.
+Then create **one OAuth client** in the
+[admin console](https://login.tailscale.com/admin/settings/oauth) with the scopes **`auth_keys`**
+and **`devices`** (write), owning the tags **`tag:agent`** and **`tag:ci`**. The server uses it to
+join the tailnet *and* to mint the `tag:ci` key CI needs — you never create that key by hand. Copy
+its **client id** and **secret**; you'll paste them into `init server` next.
+
+This is the only manual Tailscale step.
 
 ## Part A — On your server 🖥️
 
-Two steps: `init server` brings up the agent (the server's base) and `enable` accepts each
-service you'll deploy.
+Two steps: `init server` brings up the agent, and `app add` accepts each app you'll deploy.
 
 ### A1 · Configure the agent 🖥️
 
@@ -51,62 +54,61 @@ service you'll deploy.
 sudo statio init server
 ```
 
-The wizard asks for the essentials. The key field is the **signing identity**: it defines which
-GitHub workflow may deploy to this server.
+It asks only for the server name and the **Tailscale OAuth client** (the id + secret from Step 0)
+— **no repo here**. It writes the agent config, joins the tailnet, and **mints the shared `tag:ci`
+auth key** CI uses to reach it, printing a ready-to-paste command:
 
 ```
-  Server name          › statio
-  GitHub repository    › accentiostudios/api      # owner/repo or the URL
-  Workflow file        › deploy.yml
-  Branch               › main
-  OAuth client secret  › ••••••••••••••••
+  Server name        › statio
+  OAuth client ID    › k123ABC...
+  OAuth client secret › ••••••••••••••••
+
+  ✓ gh secret set STATIO_TS_AUTHKEY --body 'tskey-auth-…'
 ```
 
-From those fields it builds the identity
-`https://github.com/<owner>/<repo>/.github/workflows/<file>@refs/heads/<branch>`. The **owner** is
-your user or organization (on GitHub it's the same field): a personal account uses its username,
-`your-user/my-api`.
+Run that `gh secret set` from your machine — **one secret, reused by every repo** that deploys
+here. (Rotate it later by re-running `statio init server`.)
 
-:::note
-The identity is matched **exactly** — case, branch and workflow filename must all match, or the
-deploy fails at `verify`. See [Footguns of the signing identity](/architecture/#62-footguns-of-the-signing-identity).
-If you already have the repo handy, `statio init repo` (Part B) prints the exact identity ready to paste.
-:::
+### A2 · Accept an app 🖥️
 
-### A2 · Enable the service 🖥️
+You authorize each app — and which GitHub repo may deploy it — with `statio app add`. Apps can come
+from **different repos and even different organizations**; each pins its own signer.
 
 ```sh
-sudo statio enable
+sudo statio app add api
 ```
 
-`enable` accepts a service and pins its security anchors: the allowed image repository, the
-dependency registries, and the domains. The wizard asks:
+The wizard asks:
 
 ```
-  Service name               › api
+  App name                   › api
   Image repository           › ghcr.io/accentiostudios/api   # the EXACT repo (repo-equality)
   Allowed registries (deps)  › docker.io, ghcr.io
+  GitHub repo of this app    › accentiostudios/api           # who may sign deploys for `api`
+  Workflow file / Branch     › deploy.yml / main
   Expose a public domain?    › no
 ```
 
-It is separate from `init server` on purpose: a signed deploy **can only deploy to a service you
-already accepted with `enable`**, never create a new one. If your CI is compromised, the attacker
-is bounded to what you enabled. (Full reasoning in
-[Why enable is separate from init server](/architecture/#61-why-enable-is-separate-from-init-server).)
+That repo + workflow + branch becomes this app's **cosign signing identity**:
+`https://github.com/<owner>/<repo>/.github/workflows/<file>@refs/heads/<branch>` — matched exactly
+(see [Footguns of the signing identity](/architecture/#62-footguns-of-the-signing-identity)). Run
+`app add` again for a second app from another repo/org.
+
+A signed deploy can only target an app you already accepted — it can never stand one up, and it can
+only deploy what *its* repo signed (full reasoning:
+[per-app signers](/architecture/#61-each-app-pins-its-own-signer)).
 
 :::note
 Image in a **private** repo? Once, on the server: `docker login ghcr.io` (the agent pulls the image
 using the host's Docker login).
 :::
 
-The non-interactive form, for scripts/CI:
+The non-interactive form, for scripts:
 
 ```sh
-sudo statio enable api --image ghcr.io/accentiostudios/api \
+sudo statio app add api --image ghcr.io/accentiostudios/api \
+  --repo accentiostudios/api --branch main \
   --proxy-domain-suffix example.com --dns-domain-suffix example.com
-
-# secrets only ops should see (optional — most come from GitHub Secrets):
-sudo statio env set api SOME_OPS_SECRET --secret-stdin --protected
 ```
 
 ### A3 · Start the agent 🖥️
@@ -128,7 +130,7 @@ statio init repo
 In your repo, this:
 
 - creates `statio.yaml` if it doesn't exist (your app's config),
-- detects your signing identity and prints it, ready to paste in Part A,
+- detects your repo and prints the exact signing identity to use in `statio app add` (Part A),
 - checks whether you already have CI: if you **have a workflow**, it gives you a *snippet* to paste
   (it never touches your file); if you **don't**, it offers to generate a `.github/workflows/deploy.yml`.
 
@@ -168,13 +170,12 @@ permissions:
 - uses: accentiostudios/statio@v1
   with:
     target:  statio.your-tailnet.ts.net        # the agent's hostname (= signed audience)
-    service: api                               # must be enabled on the server
-    image:   ghcr.io/accentiostudios/api       # must match `statio enable`
+    service: api                               # must be accepted on the server (statio app add)
+    image:   ghcr.io/accentiostudios/api       # must match `statio app add --image`
     digest:  ${{ steps.build.outputs.digest }}
     env: |                                     # one KEY=${{ secrets.KEY }} per env in your statio.yaml
       DATABASE_URL=${{ secrets.DATABASE_URL }}
-    ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-    ts-oauth-secret:    ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+    ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}   # the key minted by `statio init server`
 ```
 
 statio never modifies your workflow: if you already have one, you paste the step; if not, it
@@ -185,13 +186,13 @@ generates the full `deploy.yml`. The Action inputs are in the [reference](/refer
 From your machine, towards GitHub:
 
 ```sh
-gh secret set TS_OAUTH_CLIENT_ID     --body '<tailscale tag:ci oauth client id>'
-gh secret set TS_OAUTH_CLIENT_SECRET --body '<tailscale tag:ci oauth client secret>'
-gh secret set DATABASE_URL           --body 'postgresql://app:...@db:5432/appdb'
+gh secret set STATIO_TS_AUTHKEY --body '<the auth key statio init server printed>'
+gh secret set DATABASE_URL      --body 'postgresql://app:...@db:5432/appdb'
 ```
 
-The rule: `statio.yaml` declares the **names** of the keys; the Action's `env:` block gives them
-their **value** from `${{ secrets.* }}`. Anything non-secret goes in `env_inline`.
+`STATIO_TS_AUTHKEY` is the same for every repo (the server minted it once). `DATABASE_URL` and any
+other app secret follow the rule: `statio.yaml` declares the **names**; the Action's `env:` block
+gives them their **value** from `${{ secrets.* }}`. Anything non-secret goes in `env_inline`.
 
 ### B3 · Deploy 💻
 

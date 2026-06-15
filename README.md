@@ -80,9 +80,9 @@ Setup touches **two places**. Each command is tagged:
 
 ### Step 0 · Tailscale (once, on the web)
 
-In the [Tailscale admin console](https://login.tailscale.com/admin/settings/oauth) create **two
-OAuth clients**: one tagged `tag:agent` (for the server) and one tagged `tag:ci` (for CI). Paste
-this ACL under *Access controls*:
+Paste this ACL under *Access controls*, then create **one OAuth client** with scopes `auth_keys` +
+`devices`, owning the tags `tag:agent` and `tag:ci`. The server uses it to join the tailnet and to
+mint the `tag:ci` key CI needs — you never create that key by hand.
 
 ```json
 {
@@ -92,17 +92,17 @@ this ACL under *Access controls*:
 }
 ```
 
-This is the only manual step: only `tag:ci` can talk to the agent, and only on one port.
-
 ### On your server 🖥️
 
 ```sh
-sudo statio init server     # configure the agent (signing identity, Tailscale)
-sudo statio enable          # accept a service and pin its security anchors
+sudo statio init server     # configure the agent + mint the shared CI auth key (paste the OAuth client)
+sudo statio app add api     # accept an app: image repo + its GitHub signer + domains
 sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent
 ```
 
-Both `init server` and `enable` are interactive wizards — run them without flags.
+`init server` prints a `gh secret set STATIO_TS_AUTHKEY …` command (one secret for all repos).
+`app add` accepts each app — apps can come from different repos/orgs, each pinning its own signer.
+Both are interactive wizards — run them without flags.
 
 ### On your machine 💻
 
@@ -111,7 +111,7 @@ statio init repo            # creates statio.yaml + prints the workflow step to 
 git push                    # CI builds, signs, and deploys
 ```
 
-Configure the secrets the workflow needs (`gh secret set TS_OAUTH_CLIENT_ID …`), then push.
+Set the secrets the workflow needs (`gh secret set STATIO_TS_AUTHKEY …` and your app's env), then push.
 
 > The full step-by-step — including the workflow snippet, domains, environment variables and
 > rollback — is in the [Getting started guide](https://statio.accentio.dev/getting-started/).
