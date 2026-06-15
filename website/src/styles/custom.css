@@ -1,86 +1,124 @@
-/* Statio docs theme — Accentio brand palette.
-   Dark-first: deep-purple / near-black background, blue + cyan accents, statio gold. */
+/* Statio docs theme — Accentio Studios brand.
+   Tokens taken from accentiostudios.com: bg #0e0b1e, primary #3baae2 (sky-blue),
+   titles #ccdae7, body #a7b5c3, surfaces #1c2337, purple #b77cf1, pink #ff7cf8.
+   Fonts: Montserrat (headings) + Inter (body). */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap');
 
 :root {
-  --statio-gold: #c18f3a;
-  --accentio-cyan: #5ab4ea;
-  --accentio-purple: #2a1543;
-  --accentio-purple-deep: #1a0f2e;
+  --ac-primary: #3baae2;
+  --ac-cyan: #62c4e9;
+  --ac-cyan-light: #89d4f0;
+  --ac-purple: #b77cf1;
+  --ac-pink: #ff7cf8;
+  --ac-teal: #3aecba;
+
+  --sl-font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* Dark theme (default) */
+/* ---------- Dark theme (default, the brand look) ---------- */
 :root {
-  --sl-color-accent-low: #16284d;
-  --sl-color-accent: #1f66e6;
-  --sl-color-accent-high: #9fcdf4;
+  --sl-color-accent-low: #15233c;
+  --sl-color-accent: #3baae2;
+  --sl-color-accent-high: #89d4f0;
 
-  --sl-color-white: #ffffff;
-  --sl-color-gray-1: #e8e6f0;
-  --sl-color-gray-2: #c4c1d4;
-  --sl-color-gray-3: #908da6;
-  --sl-color-gray-4: #5c5975;
-  --sl-color-gray-5: #3a3852;
-  --sl-color-gray-6: #24223a;
-  --sl-color-black: #0e0d14;
+  --sl-color-white: #eaf1f8;
+  --sl-color-gray-1: #ccdae7;
+  --sl-color-gray-2: #a7b5c3;
+  --sl-color-gray-3: #7c8a9b;
+  --sl-color-gray-4: #4d586b;
+  --sl-color-gray-5: #2a3147;
+  --sl-color-gray-6: #1c2337;
+  --sl-color-black: #0e0b1e;
 
-  --sl-color-bg-nav: rgba(14, 13, 20, 0.85);
-  --sl-color-bg-sidebar: #100e1a;
+  --sl-color-bg: #0e0b1e;
+  --sl-color-bg-nav: rgba(14, 11, 30, 0.85);
+  --sl-color-bg-sidebar: #0c0a18;
+  --sl-color-hairline-shade: #232a40;
 }
 
-/* Light theme */
+/* ---------- Light theme (clean, readable) ---------- */
 :root[data-theme='light'] {
-  --sl-color-accent-low: #c9dcff;
-  --sl-color-accent: #1f5fd1;
-  --sl-color-accent-high: #123473;
+  --sl-color-accent-low: #cfe6f7;
+  --sl-color-accent: #1f86c4;
+  --sl-color-accent-high: #0d3a5c;
 
-  --sl-color-white: #14121c;
-  --sl-color-gray-1: #26243a;
-  --sl-color-gray-2: #3a3852;
-  --sl-color-gray-3: #5c5975;
-  --sl-color-gray-4: #8e8ca6;
-  --sl-color-gray-5: #c4c1d4;
-  --sl-color-gray-6: #ece9f4;
-  --sl-color-gray-7: #f7f6fb;
+  --sl-color-white: #11131f;
+  --sl-color-gray-1: #1c2230;
+  --sl-color-gray-2: #303a4a;
+  --sl-color-gray-3: #55617a;
+  --sl-color-gray-4: #8b95a6;
+  --sl-color-gray-5: #c5cdda;
+  --sl-color-gray-6: #eceff5;
+  --sl-color-gray-7: #f7f8fc;
   --sl-color-black: #ffffff;
 
+  --sl-color-bg: #ffffff;
   --sl-color-bg-nav: rgba(255, 255, 255, 0.9);
-  --sl-color-bg-sidebar: #f7f6fb;
+  --sl-color-bg-sidebar: #f5f7fb;
+  --sl-color-hairline-shade: #e3e8f0;
 }
 
-/* Header logo: the SVG is a tall icon + wordmark — give it room. */
+/* ---------- Type ---------- */
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4,
+.site-title,
+.hero h1 {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+/* Header (app bar) logo: horizontal wordmark, kept compact. */
 .site-title img {
-  height: 2.1rem;
+  height: 1.5rem;
   width: auto;
 }
 
-/* Splash hero: purple → near-black gradient backdrop, like the Accentio brand. */
+/* Hero logo: horizontal version, a touch smaller. */
+.hero img {
+  width: min(100%, 20rem);
+  height: auto;
+}
+
+/* ---------- Splash hero ---------- */
 [data-has-hero] main {
   background:
-    radial-gradient(60% 80% at 80% -10%, rgba(31, 102, 230, 0.22), transparent 60%),
-    radial-gradient(50% 70% at 0% 0%, rgba(90, 180, 234, 0.14), transparent 55%),
-    linear-gradient(180deg, var(--accentio-purple) 0%, var(--accentio-purple-deep) 35%, var(--sl-color-black) 70%);
+    radial-gradient(60% 80% at 82% -10%, rgba(59, 170, 226, 0.20), transparent 60%),
+    radial-gradient(48% 65% at 5% 0%, rgba(183, 124, 241, 0.16), transparent 55%),
+    linear-gradient(180deg, #16112e 0%, #0f0b20 45%, var(--sl-color-bg) 78%);
 }
 :root[data-theme='light'] [data-has-hero] main {
   background:
-    radial-gradient(60% 80% at 80% -10%, rgba(31, 95, 209, 0.12), transparent 60%),
-    linear-gradient(180deg, #efe9f6 0%, #f7f6fb 60%);
+    radial-gradient(60% 80% at 82% -10%, rgba(59, 170, 226, 0.16), transparent 60%),
+    radial-gradient(48% 65% at 5% 0%, rgba(183, 124, 241, 0.12), transparent 55%),
+    linear-gradient(180deg, #eef1fb 0%, #f6f8fd 60%, var(--sl-color-bg) 100%);
 }
 
-/* Hero title gets a subtle brand gradient. */
+/* Hero title: brand cyan → indigo → purple → pink gradient (the Accentio look). */
 .hero h1 {
-  background: linear-gradient(120deg, var(--sl-color-white), var(--accentio-cyan));
+  font-weight: 800;
+  background: linear-gradient(100deg, #62c4e9 0%, #8a9cf0 38%, #b77cf1 68%, #ff7cf8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+:root[data-theme='light'] .hero h1 {
+  background: linear-gradient(100deg, #1f86c4 0%, #5a5fd0 40%, #9a4fd0 70%, #d83ba0 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-/* Primary call-to-action in statio gold. */
+/* Primary CTA: Accentio sky-blue pill with dark text. */
 .hero .actions a[class*='primary'] {
-  background: var(--statio-gold);
-  border-color: var(--statio-gold);
-  color: #1a1206;
+  background: var(--ac-primary);
+  border-color: var(--ac-primary);
+  color: #06243a;
 }
 .hero .actions a[class*='primary']:hover {
-  background: #d4a44f;
-  border-color: #d4a44f;
+  background: #57bdee;
+  border-color: #57bdee;
 }

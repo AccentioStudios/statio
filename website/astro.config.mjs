@@ -11,8 +11,8 @@ export default defineConfig({
       title: 'Statio',
       description: 'Deploy to your own server with a git push — no SSH, no open ports.',
       logo: {
-        light: './src/assets/statio-light.svg',
-        dark: './src/assets/statio-dark.svg',
+        light: './src/assets/statio-light-horizontal.svg',
+        dark: './src/assets/statio-dark-horizontal.svg',
         replacesTitle: true,
       },
       favicon: '/favicon.svg',
