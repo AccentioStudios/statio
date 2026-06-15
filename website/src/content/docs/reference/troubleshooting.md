@@ -10,6 +10,7 @@ Every failure carries a stable `code` plus a `hint`. The raw detail (compose out
 
 | Symptom | What to check |
 |---------|---------------|
+| `systemctl restart statio-agent` → `Unit statio-agent.service not found` | The agent isn't set up on this server yet — installing the binary doesn't create the service. Run `sudo statio init server` (it writes the systemd unit), then `sudo systemctl enable --now statio-agent`. |
 | Agent won't start (`no tailnet address`) | The Tailscale OAuth client (scopes `auth_keys`+`devices`, owns `tag:agent`+`tag:ci`), and that the node is approved. |
 | Deploy `403` `[audience]` | The payload targets another server: check the Action's `target`. |
 | Deploy `403` `[no_signature]` / `[identity_mismatch]` | Missing bundle, or the signing identity doesn't match the app's signer (owner/repo/workflow/branch from `statio app add`). |

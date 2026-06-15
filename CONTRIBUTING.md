@@ -75,8 +75,10 @@ git push origin vX.Y.Z
 ```
 
 That triggers GoReleaser ([`.github/workflows/release.yml`](.github/workflows/release.yml)): it
-builds the linux/darwin × amd64/arm64 binaries, signs them with cosign keyless, and publishes the
-GitHub Release with `checksums.txt`. `install.sh` and `statio upgrade` consume that release.
+builds the linux/darwin × amd64/arm64 binaries and signs `checksums.txt` with cosign keyless,
+publishing the GitHub Release with `checksums.txt`, its `.sig` and the `.pem` certificate (so the
+release is verifiable with `cosign verify-blob`). `install.sh` and `statio upgrade` consume that
+release.
 
 The documentation site is published separately by
 [`.github/workflows/docs.yml`](.github/workflows/docs.yml) on every push to `main` that touches

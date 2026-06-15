@@ -59,12 +59,14 @@ installs it to `/usr/local/bin/statio`.
 built-in self-update:
 
 ```sh
-statio upgrade            # download the latest, verify the checksum, replace the binary
+statio upgrade            # download + verify the checksum, replace the binary, restart the agent
 statio upgrade --check    # only report whether a new version exists
 ```
 
-After updating on the server, restart the agent: `sudo systemctl restart statio-agent`. The CLI
-also nudges you when a new version is available. To diagnose your environment: `statio doctor`.
+On a server, `statio upgrade` (and re-running the installer) restart the `statio-agent` service
+automatically when it's running, so the new binary takes effect right away — pass `--no-restart` to
+skip it. The CLI also nudges you when a new version is available. To diagnose your environment:
+`statio doctor`.
 
 You also need **Docker** on the server and a **Tailscale** account (the free plan is enough). In
 CI you install nothing: the Action downloads the binary.
