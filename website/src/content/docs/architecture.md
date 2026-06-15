@@ -1,0 +1,245 @@
+---
+title: Architecture
+description: How statio works inside — the two parts, the deploy pipeline, the signed wire contract, and the security model.
+---
+
+This is the technical reference: how statio is built, how a deploy flows end to end, the signed wire
+contract, and the security model. For the usage walkthrough, see [Getting started](/statio/getting-started/).
+
+## 1. Two parts, one contract
+
+statio is two parts in one repo, tied together by the `statio/v1` contract (`internal/spec`):
+
+| Part | Where it runs | What it is |
+|------|---------------|------------|
+| **Server** | your server | the `statio` binary as `statio agent run` under systemd, plus `statio init` / `statio env` |
+| **Action** | a GitHub Actions runner | `action.yml` (at the repo root) — downloads the **same** binary and runs `statio deploy` |
+
+Because the Action downloads and runs the same binary, validation lives in **one Go codebase**, used
+by the agent (authoritative) and by `statio deploy` (fail-fast). The contract can't drift.
+
+**Embedded Tailscale (`tsnet`).** The agent imports `tailscale.com/tsnet`: the `statio` binary embeds
+a full Tailscale node (userspace WireGuard). On the server you install **no `tailscaled` and no CLI**
+— the agent joins the tailnet and exposes its endpoint only there. State persists in
+`/var/lib/statio/tsnet`. Containers on the host are not on the tailnet (they don't need to be: the
+agent talks to NPMplus over localhost and pulls images over normal HTTPS).
+
+**Two transports:** the **signal + config** travels over the tailnet (private, end-to-end encrypted by
+WireGuard); the **image** travels over normal HTTPS to/from GHCR. New calls (Cloudflare, NPMplus) are
+**outbound** — they add no inbound surface.
+
+## 2. The four hard constraints
+
+Non-negotiable. Every decision preserves them:
+
+1. **No SSH**, ever.
+2. The agent **listens only on the tailnet** (100.x), never on a public interface.
+3. **No central broker of our own.** The central pieces (registry, Tailscale control plane, Sigstore
+   TUF) are operated by third parties.
+4. **No polling.** The agent receives a direct, real-time push.
+
+Additional stance: images by **immutable digest**; authenticity by **cosign signature** (not by the
+transport); the event carries **data, never scripts** — it is not remote code execution.
+
+## 3. The deploy pipeline
+
+Per service, under a `flock`, the agent runs an ordered pipeline:
+
+```
+1. admit       decode envelope + closed schema + allowlists + repo-equality + binding checks
+2. verify      cosign signature over the exact payload bytes   ← HARD GATE (before any effect)
+3. idempotency same digest + env, already healthy → no-op
+4. pull        docker pull @digest + re-check (resolved digest == requested)
+5. env         write the per-service env files (tmpfs, 0600)
+6. recreate    generate compose + docker compose up -d (argv, never a shell string)
+7. health      loopback probe                                  ← EXPOSURE GATE
+8. proxy       NPMplus upsert (best-effort)
+9. dns         Cloudflare upsert A record (best-effort)
+10. persist    advance last-good (digest + env + edge) → respond with per-stage status
+```
+
+`verify` and `pull` are hard gates; `proxy`/`dns` are **best-effort** (a Cloudflare/NPMplus blip never
+takes down a healthy container). **Health runs before the edge**, so a broken deploy is never exposed
+and a rollback stays edge-neutral.
+
+Terminal states (in the HTTP response, with no secrets):
+
+| State | Meaning |
+|-------|---------|
+| `success` | verified, pulled, healthy, edge OK or not requested |
+| `no_op` | same digest + same env, already healthy |
+| `success_degraded` | container healthy, but proxy/dns failed (converges on retry) |
+| `failure_rolled_back` | health failed → reverted image + env to the last good |
+| `failure` | a hard gate failed (admit/verify/pull) → nothing changed |
+
+## 4. The signed wire contract
+
+CI sends a signed **envelope**; the agent verifies it before decoding anything:
+
+```jsonc
+// Envelope — capped at 512 KiB before any parse
+{
+  "payload": "<base64 of the EXACT signed DeployRequest bytes>",
+  "bundle":  { /* cosign keyless signature + Fulcio cert + Rekor proof */ }
+}
+```
+
+A missing or empty `bundle` is a downgrade attempt and **fails closed** — there is no unsigned path.
+The agent verifies the cosign bundle over the exact `payload` bytes, then decodes **those same bytes**
+as a `DeployRequest` (never re-marshalled between verify and decode — that would break byte-equality):
+
+```jsonc
+{
+  "apiVersion": "statio/v1",
+  "kind": "DeployRequest",
+  "service": "api",
+  "image": { "repository": "ghcr.io/accentiostudios/api", "digest": "sha256:<64hex>" },
+  "app_intent": { "services": [ /* see §5 */ ] },
+  "env_overrides": { "DATABASE_URL": "…" },     // values, from GitHub Secrets (courier)
+  "proxy": { "enabled": true, "domain": "api.example.com", "upstream_host": "api", "upstream_port": 3000, "scheme": "http", "ssl": true },
+  "dns":   { "enabled": true, "domain": "api.example.com" },
+
+  // Binding fields — signed, and compared by the agent against its OWN config/state:
+  "audience":   "statio.tailnet.ts.net",        // must equal the agent's own hostname
+  "deploy_seq": 1234,                            // monotonic; must exceed the last applied
+  "issued_at":  "2026-06-15T12:00:00Z",
+  "expiry":     "2026-06-15T12:05:00Z"          // rejected if now > expiry
+}
+```
+
+Decoded with `DisallowUnknownFields`. Every field is a scalar/bool/enum/map-of-literals — **nothing**
+reaches a command, shell, template, URL, host, or path position. The binding fields close
+cross-server and replay attacks: a payload is bound to one target and one moment.
+
+**Event-carried vs server-side:**
+
+| Carried by the event (data) | Held by the server (config/secrets) |
+|---|---|
+| `service`, `image.digest`, `app_intent`, `env_overrides`, `proxy`/`dns` fields, binding fields | allowed image repo (equality), cosign identity, env base + protected keys, registry/domain/upstream allowlists, NPMplus creds, Cloudflare token + zone, **public IP**, DNS record type (forced `A`) |
+
+## 5. Generated compose (app_intent)
+
+The agent never runs a compose file from the repo. It turns `app_intent` into a compose file from a
+**fixed, safe template** (`internal/compose`). The dangerous fields — `privileged`, `cap_add`,
+`network_mode`, host bind-mounts, `devices`, `sysctls`, … — simply **don't exist** in the schema, so
+they can't be expressed.
+
+- Each `service` is your app (no `image:` → the verified, repo-pinned digest is injected) or a
+  dependency (`image:` pinned by digest, from a registry on the server allowlist).
+- **Ports** publish on `127.0.0.1` only — the host IP is hard-coded by the generator, never carried, so
+  a port can't land on a public interface. A service with no ports stays on the internal network.
+- **Volumes** are Docker-managed named volumes (name + path only): no driver/device/bind source, so a
+  "named volume" can never become a host bind mount.
+- **Env** lists key *names*; **env_inline** holds non-secret literals; **command** is exec-form only
+  (no shell string); **health** is your app's loopback probe.
+- Caps bound the surface: ≤20 services (the server applies a finer `max_services`), ≤20 ports/volumes
+  per service, bounded command and health-path lengths.
+
+## 6. Security model
+
+Invariants that **don't get undone** (several are test-enforced):
+
+1. **Data-only channel / no-RCE.** Closed schema + caps; nothing from the event reaches a command
+   position.
+2. **`ListenFunnel` forbidden + lint.** `go test` fails if `.ListenFunnel(` or `net.Listen(` appears,
+   plus a `100.64.0.0/10` self-check at startup.
+3. **OAuth client, not an auth key.** Separate clients for the agent and CI.
+4. **Exact cosign identity by default.** A regexp is only allowed if anchored and without a wildcard
+   over owner/repo; fail-closed if issuer/identity is missing.
+5. **Post-pull digest re-check + repo-equality** (the event picks *which* signed digest of an allowed
+   image, never an arbitrary image).
+6. **Signed envelope mandatory.** A missing bundle → 403, fail-closed; no unsigned path exists.
+7. **Byte-equality.** Verify exactly the bytes that get decoded; no re-marshal in between.
+8. **Target + freshness binding.** `audience` must equal the agent's hostname; `deploy_seq` is
+   monotonic and persisted; `expiry` is short — all fail-closed.
+9. **Server-side anchors aren't dissolved.** Allowed repo, signer identity, accepted service,
+   zone/IP, upstream and registry allowlists, protected keys — compared against server config, never
+   self-asserted by the payload. **No auto-provisioning** of new services.
+10. **No newline/NUL/control chars** in env values; **secrets stay out of logs/argv/responses**.
+11. **WhoIs fail-closed**; tlog/SCT required; secret perms validated at startup.
+12. **`docker.sock` = root-equivalent** (inherent): an agent exploit before the cosign gate is host
+    root. The cosign gate + the systemd sandbox are the compensating controls.
+
+### 6.1 Why enable is separate from init server
+
+`init server` configures the agent once (signing identity, tailnet). `enable` accepts a service and
+pins its anchors, and is repeated per service. They are separate by design: a signed deploy **can
+never create a new service on its own** — it can only deploy to one ops already accepted with
+`enable`. If CI is compromised, the attacker is bounded to the enabled image repo and domains, and
+can't plant arbitrary services.
+
+### 6.2 Footguns of the signing identity
+
+The identity is matched **exactly**. The three mistakes that cause `verify` to fail:
+
+- **Case**: `owner`/`repo` must match GitHub character-for-character.
+- **Branch**: only the configured branch deploys (`@refs/heads/<branch>`).
+- **Workflow**: the file name (`deploy.yml`) must match; a reusable workflow changes the certificate
+  identity.
+
+### 6.3 Identity-compromise runbook
+
+A single cosign identity signs **both image and payload**. If that repo/workflow is compromised, an
+attacker can sign code + config. Mitigations and response:
+
+- **Prevent:** branch protection + required reviews on the signing repo/ref; watch every deploy
+  (`statio logs`).
+- **Rotate a leaked secret** (without waiting for CI): `statio env set <svc> KEY --secret-stdin` on the
+  server (the ops base is the break-glass path).
+- **Rotate the trusted identity:** change `cosign.identity` in `/etc/statio/config.yaml`, distribute to
+  all agents, restart `statio-agent`.
+- **Bounded by design:** even with a signed payload, DNS points only at your pinned IP, the upstream
+  and domains are allowlisted, and the generated compose can't escalate to host root. The blast radius
+  is "your own repo deployed something".
+
+### 6.4 Secrets at-rest (the honest claim)
+
+The agent runs as root with `docker.sock`, so it's root-equivalent. CI values are **RAM-only**
+(`/run/statio`, tmpfs) and don't appear in logs or the response, but there's **no magic at-rest
+encryption**: `docker inspect` shows them to local root. The real protection is that GitHub Secrets is
+the store, the channel is signed, and nothing touches persistent disk.
+
+### 6.5 Private repos and Rekor
+
+`statio init repo`'s auto-detect reads the **local** git remote, so it works with private repos (no
+auth, no API). The image and code stay private. But keyless signing records the *identity*
+(owner/repo/workflow) in the public transparency log (Rekor): the repo **name** becomes public even if
+the repo is private.
+
+## 7. Server-side anchors (`statio enable`)
+
+`statio enable` writes a per-service manifest under `/etc/statio/services/<svc>/` pinning: the allowed
+image **repository** (repo-equality), the dependency **registry allowlist**, the proxy/dns **domain
+suffix allowlists** and **upstream allowlist**, `max_services`, and the rollback policy. A deploy is
+compared against these — it can never widen them.
+
+## 8. Env courier & tmpfs
+
+Secret values live in GitHub Secrets, travel inside the signed envelope (`env_overrides`), and the
+agent writes them to **`/run/statio/<svc>/<svc>.env`** on tmpfs (RAM). Two files keep interpolation
+structurally impossible: a small `interp.env` (only the image digest, for `${…}` interpolation) and the
+literal `app.env` consumed via `env_file:`. A secret containing `${…}` is just a byte in `app.env`; it
+never reaches the compose interpolation parser. Rollback restores the rendered `app.env` together with
+the digest, as one unit.
+
+## 9. Code layout
+
+| Package | Responsibility |
+|---------|----------------|
+| `internal/spec` | the `statio/v1` contract: envelope + DeployRequest + app_intent, closed validation (shared by both parts) |
+| `internal/agent` | tsnet server, `POST /deploy` handler, 100.x self-check, WhoIs guard, lint |
+| `internal/verify` | cosign keyless verify (image + blob), verify-before-act |
+| `internal/compose` | the safe compose generator (allowlist template) |
+| `internal/deploy` | the pipeline, state/rollback, health, puller |
+| `internal/env` | hybrid env merge (protected/required, two-file, no newline/NUL) |
+| `internal/proxy` / `internal/dns` | typed NPMplus / Cloudflare clients (idempotent upsert) |
+| `internal/audit` | redacted append-only JSONL deploy log (`statio logs`) |
+| `internal/config` | global config + fail-closed validation + perms |
+| `internal/client` | `statio deploy` (builds, signs, and posts the envelope) |
+| `internal/cli` | the cobra tree + `huh` wizards |
+
+```sh
+go build ./...
+go test ./...     # spec, env, config, proxy, dns, deploy, agent (lint), selfupdate
+go vet ./...
+```

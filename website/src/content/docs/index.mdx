@@ -1,0 +1,57 @@
+---
+title: Statio
+description: Deploy to your own server with a git push — no SSH, no open ports.
+template: splash
+hero:
+  tagline: Deploy to your own server with a git push — no SSH, no open ports. Cosign-verified, over a private Tailscale network.
+  image:
+    dark: ../../assets/statio-dark.svg
+    light: ../../assets/statio-light.svg
+  actions:
+    - text: Get started
+      link: /statio/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/accentiostudios/statio
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, Code } from '@astrojs/starlight/components';
+
+## What is Statio?
+
+**Statio** ships your Docker image to your own server with a `git push`. Your GitHub Actions
+workflow builds and signs the image; a lightweight **agent** on your server —connected over a
+private Tailscale network— receives it, verifies the signature, and recreates the container.
+
+```
+git push ─▶ CI: build + sign ─▶ statio/action ─▶ agent on your server ─▶ deployed
+```
+
+<CardGrid>
+  <Card title="No SSH, no open ports" icon="approve-check">
+    The server exposes nothing to the internet. Traffic flows over a private Tailscale network.
+  </Card>
+  <Card title="Signed deploys only" icon="seti:lock">
+    Only what your CI signed gets deployed — cosign keyless verification before anything runs.
+  </Card>
+  <Card title="Domain & DNS included" icon="globe">
+    Configure the reverse proxy (NPMplus) and Cloudflare DNS in the same deploy.
+  </Card>
+  <Card title="Just an Actions step" icon="rocket">
+    Drops into GitHub Actions as one step. No brittle deploy scripts.
+  </Card>
+</CardGrid>
+
+## Install
+
+On the server, a single command:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/accentiostudios/statio/main/install.sh | sudo sh
+```
+
+Then follow the [Getting started](/statio/getting-started/) walkthrough — server setup, the workflow
+step, and your first `git push` deploy.

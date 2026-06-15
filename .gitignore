@@ -1,7 +1,14 @@
 # Build artifacts
+/statio
+/statio.exe
 /push
 /push.exe
 /dist/
+
+# Docs site (Astro / Node)
+website/node_modules/
+website/dist/
+website/.astro/
 
 # Go test / coverage
 *.test
