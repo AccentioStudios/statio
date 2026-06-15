@@ -3,15 +3,34 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/accentiostudios/statio/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
 
+// agentUnit is the systemd unit `statio init server` installs on a server.
+const agentUnit = "statio-agent"
+
+// agentUnitActive reports whether the agent unit exists and is currently running.
+// It is false on non-systemd hosts (e.g. a dev machine running only the CLI), so the
+// upgrade never tries to touch a service that isn't there.
+func agentUnitActive() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		return false
+	}
+	// `is-active --quiet` exits 0 only when the unit is loaded and running.
+	return exec.Command("systemctl", "is-active", "--quiet", agentUnit).Run() == nil
+}
+
 func newUpgradeCmd(current string) *cobra.Command {
 	var target string
-	var checkOnly, assumeYes bool
+	var checkOnly, assumeYes, noRestart bool
 	cmd := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Update statio to the latest release (self-update)",
@@ -61,13 +80,30 @@ func newUpgradeCmd(current string) *cobra.Command {
 				return err
 			}
 			okLine("statio actualizado a %s", tag)
-			warnLine("si el agente corre como servicio, reinícialo para usar el binario nuevo:")
-			codeBlock("sudo systemctl restart statio-agent")
+
+			// On a server the agent runs as systemd; restart it so it loads the new
+			// binary. We only touch it when the unit is actually active — on a dev
+			// machine (CLI-only) there's nothing to restart.
+			switch {
+			case noRestart:
+				warnLine("si el agente corre como servicio, reinícialo para usar el binario nuevo:")
+				codeBlock("sudo systemctl restart statio-agent")
+			case agentUnitActive():
+				if err := exec.Command("systemctl", "restart", agentUnit).Run(); err != nil {
+					warnLine("no pude reiniciar el agente automáticamente (¿corres como root?): %v", err)
+					codeBlock("sudo systemctl restart statio-agent")
+				} else {
+					okLine("agente reiniciado (%s) con el binario nuevo", agentUnit)
+				}
+			default:
+				info("(no hay un agente %s activo en esta máquina; nada que reiniciar)", agentUnit)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&target, "version", "", "versión específica a instalar (ej. v1.2.3)")
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "solo verificar si hay una versión nueva, sin instalar")
 	cmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "no preguntar confirmación")
+	cmd.Flags().BoolVar(&noRestart, "no-restart", false, "no reiniciar el agente statio-agent tras actualizar")
 	return cmd
 }

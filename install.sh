@@ -108,7 +108,14 @@ fi
 echo ""
 echo "✓ $("${BINDIR}/statio" version 2>/dev/null || echo 'statio instalado')"
 if [ -n "$installed" ]; then
-  echo "  Si el agente corre como servicio:  sudo systemctl restart statio-agent"
+  # Actualización: si el agente corre como servicio, recárgalo para que tome el
+  # binario nuevo. Solo lo tocamos cuando la unit está activa.
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet statio-agent 2>/dev/null; then
+    echo "  Reiniciando el agente (statio-agent) con el binario nuevo..."
+    systemctl restart statio-agent && echo "  ✓ agente reiniciado"
+  else
+    echo "  (no hay un agente statio-agent activo; nada que reiniciar)"
+  fi
 else
   echo "  Siguiente paso:  sudo statio init server"
 fi
