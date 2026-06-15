@@ -1,0 +1,23 @@
+# ── statio: agregá esto a tu workflow de GitHub Actions ──
+
+# 1) Tu job necesita estos permisos (a nivel job o workflow):
+#      permissions:
+#        id-token: write   # cosign firma imagen + payload (keyless OIDC)
+#        packages: write   # push a GHCR
+#        contents: read
+
+# 2) Después de buildear y pushear tu imagen, firmala (si tu workflow aún no lo hace):
+- uses: sigstore/cosign-installer@v3
+- run: cosign sign --yes {{.Image}}@${{ steps.build.outputs.digest }}
+
+# 3) El step de statio: lee statio.yaml, firma el payload y manda el envelope firmado.
+- uses: {{.ActionRef}}
+  with:
+    target:  {{.Target}}          # hostname del agente (= audience firmado)
+    service: {{.Service}}         # debe estar habilitado en el server (statio enable)
+    image:   {{.Image}}           # debe coincidir con statio enable --image
+    digest:  ${{ steps.build.outputs.digest }}
+    env: |                        # un KEY=${{ secrets.KEY }} por cada env que pide tu statio.yaml
+      DATABASE_URL=${{ secrets.DATABASE_URL }}
+    ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+    ts-oauth-secret:    ${{ secrets.TS_OAUTH_CLIENT_SECRET }}

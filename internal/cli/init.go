@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/template"
 
 	"github.com/accentiostudios/statio/internal/fsutil"
 	"github.com/charmbracelet/huh"
@@ -24,16 +23,19 @@ func newInitCmd(version string) *cobra.Command {
 	return cmd
 }
 
-func render(name string, data any) ([]byte, error) {
-	t, err := template.ParseFS(assets, "assets/"+name)
+// render substitutes {{.Key}} placeholders with the given values via plain string
+// replacement. It deliberately does NOT use text/template: the assets contain literal
+// GitHub Actions expressions (${{ ... }}) that a template engine would try to parse.
+func render(name string, data map[string]string) ([]byte, error) {
+	b, err := assets.ReadFile("assets/" + name)
 	if err != nil {
 		return nil, err
 	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return nil, err
+	s := string(b)
+	for k, v := range data {
+		s = strings.ReplaceAll(s, "{{."+k+"}}", v)
 	}
-	return buf.Bytes(), nil
+	return []byte(s), nil
 }
 
 // ---- huh helpers ----
@@ -75,6 +77,7 @@ func confirm(title string) (bool, error) {
 
 func newInitServerCmd() *cobra.Command {
 	var hostname, identity, issuer, configPath, oauthSecretFile string
+	var repoFlag, workflowFlag, branchFlag string
 	var oauthStdin bool
 	cmd := &cobra.Command{
 		Use:   "server",
@@ -83,11 +86,19 @@ func newInitServerCmd() *cobra.Command {
 			if issuer == "" {
 				issuer = "https://token.actions.githubusercontent.com"
 			}
+			// Non-interactive: build the identity from --repo if --identity was not given.
+			if identity == "" && repoFlag != "" {
+				owner, repo, err := parseOwnerRepo(repoFlag)
+				if err != nil {
+					return fmt.Errorf("--repo: %w", err)
+				}
+				identity = buildIdentity(owner, repo, workflowFlag, branchFlag)
+			}
 			var oauthSecret string
 
 			if interactive() && (hostname == "" || identity == "") {
 				banner("statio · init server", "Configura el agente de deploy en este servidor")
-				org, repo, wf, branch := "", "", "deploy.yml", "main"
+				repoInput, wf, branch := "", "deploy.yml", "main"
 				if hostname == "" {
 					hostname = "statio"
 				}
@@ -99,16 +110,20 @@ func newInitServerCmd() *cobra.Command {
 					return err
 				}
 				sectionTitle("Identidad de firma (cosign)")
-				info("Solo imágenes firmadas por este workflow se desplegarán.")
+				info("Define QUÉ workflow de GitHub puede desplegar. Owner = tu usuario u organización (es lo mismo).")
+				info("Tip: corré 'statio init repo' en tu repo para ver tu identidad exacta y pegarla acá.")
 				if err := runForm(
-					inputField("GitHub org", "Tu organización", "accentiostudios", &org, true),
-					inputField("Repositorio", "El repo que despliega (sin la org)", "api", &repo, true),
-					inputField("Archivo del workflow", "Dentro de .github/workflows/", "deploy.yml", &wf, true),
-					inputField("Branch", "La rama autorizada a desplegar", "main", &branch, true),
+					inputField("Repositorio de GitHub", "owner/repo o la URL. Ej: accentiostudios/api (org) o tu-usuario/mi-api (cuenta personal). Podés pegar la URL del repo.", "accentiostudios/api", &repoInput, true),
+					inputField("Archivo del workflow", "El archivo en .github/workflows/ que despliega", "deploy.yml", &wf, true),
+					inputField("Branch", "La rama autorizada a desplegar (solo esa rama deploya)", "main", &branch, true),
 				); err != nil {
 					return err
 				}
-				identity = fmt.Sprintf("https://github.com/%s/%s/.github/workflows/%s@refs/heads/%s", trimmed(org), trimmed(repo), trimmed(wf), trimmed(branch))
+				owner, repo, err := parseOwnerRepo(repoInput)
+				if err != nil {
+					return fmt.Errorf("repositorio inválido (%v) — usá owner/repo o la URL, sin espacios", err)
+				}
+				identity = buildIdentity(owner, repo, trimmed(wf), trimmed(branch))
 
 				sectionTitle("Credencial de Tailscale")
 				info("Crea un OAuth client (dueño de tag:agent) en el admin console de Tailscale.")
@@ -133,7 +148,7 @@ func newInitServerCmd() *cobra.Command {
 				}
 			} else {
 				if hostname == "" || identity == "" {
-					return fmt.Errorf("modo no-interactivo: --hostname y --identity son requeridos")
+					return fmt.Errorf("modo no-interactivo: --hostname y (--identity o --repo) son requeridos")
 				}
 				b, err := readSecret(oauthStdin, oauthSecretFile, "--ts-oauth-secret")
 				if err != nil {
@@ -159,6 +174,9 @@ func newInitServerCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&hostname, "hostname", "", "tsnet MagicDNS hostname (no-interactivo)")
 	f.StringVar(&identity, "identity", "", "cosign certificate identity SAN (no-interactivo)")
+	f.StringVar(&repoFlag, "repo", "", "owner/repo o URL — arma la identidad (alternativa a --identity)")
+	f.StringVar(&workflowFlag, "workflow", "deploy.yml", "archivo del workflow (con --repo)")
+	f.StringVar(&branchFlag, "branch", "main", "rama autorizada (con --repo)")
 	f.StringVar(&issuer, "issuer", "", "cosign OIDC issuer")
 	f.StringVar(&configPath, "config", "/etc/statio/config.yaml", "config output path")
 	f.BoolVar(&oauthStdin, "ts-oauth-secret-stdin", false, "leer el OAuth secret de stdin (no-interactivo)")
@@ -286,38 +304,26 @@ func writeJSONSecret(path, json string) error {
 // ============================ init repo =============================
 
 func newInitRepoCmd() *cobra.Command {
-	var target, service, image, actionRef, out, statioOut string
+	var target, service, image, actionRef, out, statioOut, branch, workflow string
+	var createWorkflow bool
 	cmd := &cobra.Command{
 		Use:   "repo",
-		Short: "Generate the GitHub Actions workflow (interactive)",
+		Short: "Prepara tu repo para statio (statio.yaml + cómo llamar al Action) — se corre DENTRO del repo",
 		RunE: func(c *cobra.Command, _ []string) error {
 			if interactive() && (target == "" || service == "" || image == "") {
-				banner("statio · init repo", "Genera .github/workflows/deploy.yml")
+				banner("statio · init repo", "Corre DENTRO del repo de tu proyecto (no en el servidor)")
 				if err := runForm(
-					inputField("Dirección del servidor (Tailscale)", "El nombre que le pusiste + .<tu-tailnet>.ts.net. Ej: statio.tu-org.ts.net", "statio.<tu-tailnet>.ts.net", &target, true),
-					inputField("Service", "Nombre del servicio (debe existir en el agente)", "api", &service, true),
-					inputField("Image repository", "Repo de la imagen", "ghcr.io/accentiostudios/api", &image, true),
+					inputField("Dirección del servidor (Tailscale)", "El nombre que le pusiste al agente + .<tu-tailnet>.ts.net. Ej: statio.tu-org.ts.net", "statio.<tu-tailnet>.ts.net", &target, true),
+					inputField("Service", "Nombre del servicio (debe estar habilitado en el agente con 'statio enable')", "api", &service, true),
+					inputField("Image repository", "Repo de tu imagen (debe coincidir con 'statio enable --image')", "ghcr.io/accentiostudios/api", &image, true),
 				); err != nil {
 					return err
 				}
 			} else if target == "" || service == "" || image == "" {
 				return fmt.Errorf("modo no-interactivo: --target, --service y --image son requeridos")
 			}
-			yml, err := render("deploy.yml.tmpl", map[string]string{
-				"Target": target, "Service": service, "Image": image, "ActionRef": actionRef,
-			})
-			if err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-				return err
-			}
-			if err := os.WriteFile(out, yml, 0o644); err != nil {
-				return err
-			}
-			okLine("Generado %s", out)
 
-			// Also scaffold statio.yaml in the repo root (skip if it already exists).
+			// 1. Scaffold statio.yaml (statio's own config), only if missing.
 			if _, err := os.Stat(statioOut); os.IsNotExist(err) {
 				py, err := render("statio.yaml.tmpl", map[string]string{"Service": service})
 				if err != nil {
@@ -331,12 +337,67 @@ func newInitRepoCmd() *cobra.Command {
 				info("%s ya existe; no se tocó", statioOut)
 			}
 
-			sectionTitle("Configura estos GitHub secrets (print-to-paste — el CLI nunca maneja un PAT)")
+			// 2. Auto-detect owner/repo from the git remote → print the exact cosign identity
+			//    to paste on the server. Local git read, so it works for private repos too.
+			if owner, repo, ok := detectOwnerRepo(); ok {
+				ident := buildIdentity(owner, repo, workflow, branch)
+				sectionTitle("Identidad de firma — pegá esto EN EL SERVIDOR 🖥️")
+				info("Detecté tu repo: %s/%s  (rama %s, workflow %s)", owner, repo, branch, workflow)
+				info("Identidad cosign: %s", ident)
+				codeBlock("statio init server --hostname <nombre> --repo " + owner + "/" + repo + " --branch " + branch + " --ts-oauth-secret-stdin")
+				info("(o en el wizard del server, en 'Repositorio de GitHub' ingresá: %s/%s)", owner, repo)
+			} else {
+				info("No pude detectar el repo desde git (¿hay un remote 'origin'?). En el server ingresá tu owner/repo a mano.")
+			}
+
+			// 3. Workflow: never modify an existing one. Detect + adapt.
+			existing := detectWorkflows()
+			switch {
+			case len(existing) > 0:
+				sectionTitle("Ya tenés CI — agregá statio como un step 💻")
+				info("Detecté: %s", strings.Join(existing, ", "))
+				info("statio NO toca tu workflow. Agregá este step donde buildeás y firmás tu imagen:")
+				printSnippet(target, service, image, actionRef)
+			default:
+				gen := createWorkflow
+				if !gen && interactive() {
+					ok, err := confirm("No detecté un workflow de CI. ¿Genero un .github/workflows/deploy.yml listo para usar?")
+					if err != nil {
+						return err
+					}
+					gen = ok
+				}
+				if gen {
+					if _, err := os.Stat(out); err == nil {
+						info("%s ya existe; no se sobreescribe. Usá este step:", out)
+						printSnippet(target, service, image, actionRef)
+					} else {
+						yml, err := render("deploy.yml.tmpl", map[string]string{"Target": target, "Service": service, "Image": image, "ActionRef": actionRef})
+						if err != nil {
+							return err
+						}
+						if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+							return err
+						}
+						if err := os.WriteFile(out, yml, 0o644); err != nil {
+							return err
+						}
+						okLine("Generado %s", out)
+					}
+				} else {
+					sectionTitle("Agregá statio a tu workflow 💻")
+					printSnippet(target, service, image, actionRef)
+				}
+			}
+
+			// 4. Secrets — run from your machine, towards GitHub.
+			sectionTitle("Configura estos GitHub secrets (desde tu máquina 💻)")
 			codeBlock(
 				"gh secret set TS_OAUTH_CLIENT_ID     --body '<tailscale ci oauth client id>'",
 				"gh secret set TS_OAUTH_CLIENT_SECRET --body '<tailscale ci oauth client secret>'",
+				"gh secret set DATABASE_URL           --body '<el valor de cada env que pide tu statio.yaml>'",
 			)
-			info("El OAuth client de CI debe ser dueño de tag:ci (distinto del de tag:agent).")
+			info("El OAuth client de CI debe ser dueño de tag:ci (distinto del de tag:agent del server).")
 			return nil
 		},
 	}
@@ -344,10 +405,27 @@ func newInitRepoCmd() *cobra.Command {
 	f.StringVar(&target, "target", "", "agent MagicDNS host (no-interactivo)")
 	f.StringVar(&service, "service", "", "service name (no-interactivo)")
 	f.StringVar(&image, "image", "", "image repository (no-interactivo)")
-	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio/action@v1", "the push composite action ref")
-	f.StringVar(&out, "out", ".github/workflows/deploy.yml", "workflow output path")
+	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio/action@v1", "the statio composite action ref")
+	f.StringVar(&out, "out", ".github/workflows/deploy.yml", "ruta del workflow (con --create-workflow)")
 	f.StringVar(&statioOut, "statio-out", "statio.yaml", "statio.yaml starter output path")
+	f.BoolVar(&createWorkflow, "create-workflow", false, "generar un deploy.yml starter (solo si no existe ninguno)")
+	f.StringVar(&branch, "branch", "main", "rama de deploy (para la identidad cosign impresa)")
+	f.StringVar(&workflow, "workflow", "deploy.yml", "nombre del archivo de workflow (para la identidad impresa)")
 	return cmd
+}
+
+// printSnippet renders and prints the CI step to paste into the user's own workflow. It is
+// printed verbatim (it contains literal ${{ ... }} GitHub expressions).
+func printSnippet(target, service, image, actionRef string) {
+	snip, err := render("statio-step.snippet.tmpl", map[string]string{
+		"Target": target, "Service": service, "Image": image, "ActionRef": actionRef,
+	})
+	if err != nil {
+		warnLine("no pude generar el snippet: %v", err)
+		return
+	}
+	fmt.Println()
+	fmt.Println(string(snip))
 }
 
 // readSecret reads a secret from stdin or a file (non-interactive paths).

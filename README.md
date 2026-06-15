@@ -56,9 +56,14 @@ nada: la Action descarga el binario.
 
 ## Quick Start
 
-Vamos a desplegar una API a un servidor en ~5 minutos.
+Vas a tocar **dos lugares**. Cada comando indica dónde corre:
 
-### 0 · Prerequisito (una vez)
+- 🖥️ **En tu servidor** — el VPS Linux, por SSH/consola, como root.
+- 💻 **En tu máquina** — dentro del repo de tu proyecto (donde está tu código).
+
+(GitHub corre el Action solo; ahí no entrás, salvo para `gh secret set` desde tu máquina.)
+
+### 0 · Prerequisito (una vez) — en Tailscale (web)
 
 En el [admin console de Tailscale](https://login.tailscale.com/admin/settings/oauth) crea
 **dos OAuth clients**: uno con el tag `tag:agent` (para el server) y otro con `tag:ci`
@@ -74,99 +79,173 @@ En el [admin console de Tailscale](https://login.tailscale.com/admin/settings/oa
 
 > 💡 Esto es lo único manual. Solo `tag:ci` podrá hablarle al agente, y solo por un puerto.
 
-### 1 · Configura el servidor
+---
 
-Ejecuta el asistente. Te guía paso a paso:
+## Parte A — En tu servidor 🖥️
+
+> Todo en esta parte corre **en el servidor** (por SSH), una sola vez.
+
+### A1 · Configura el agente — 🖥️
 
 ```sh
 sudo statio init server
 ```
 
-```
-  ╭─────────────────────────────────────────────╮
-  │ statio · init server                            │
-  │ Configura el agente de deploy en este servidor│
-  ╰─────────────────────────────────────────────╯
+El wizard te pregunta (lo importante: la **identidad de firma**):
 
-  Nombre del servidor › statio
-  GitHub org          › accentiostudios
-  Repositorio        › api
-  Branch             › main
-  OAuth secret       › ••••••••••••••••
-  ¿Escribir la configuración?  Yes
-  ✓ Escrito: /etc/statio/config.yaml y la unit de systemd
+```
+  Nombre de este servidor   › statio
+  Repositorio de GitHub      › accentiostudios/api      # owner/repo o la URL (podés pegarla)
+  Archivo del workflow       › deploy.yml
+  Branch                     › main
+  OAuth client secret        › ••••••••••••••••
 ```
 
-### 2 · Habilita el servicio en el servidor
+> 🔑 **La identidad de firma** = *qué workflow de GitHub puede deployar*. Con esos campos arma:
+> `https://github.com/<owner>/<repo>/.github/workflows/<archivo>@refs/heads/<branch>`
+> - **owner** = tu **usuario U organización** — en GitHub es el mismo campo. ¿Cuenta personal,
+>   sin organización? Usás tu **usuario**: `tu-usuario/mi-api`.
+> - Son **nombres** (o pegá la URL del repo), no hace falta organización: `accentiostudios/api`.
+> - **Tip:** corré `statio init repo` en tu repo (Parte B) y te imprime la identidad exacta lista
+>   para pegar acá.
+> - **Footguns** (todos dan `verify falla`): mayúsculas exactas como en GitHub; solo deploya desde
+>   esa rama; el nombre del archivo del workflow debe coincidir.
 
-Una sola vez, ops acepta el servicio y fija sus anclas de seguridad (qué repo de imagen se
-permite, qué registries de dependencias, qué dominios):
+### A2 · Habilita el servicio — 🖥️
+
+Ops acepta el servicio y fija sus anclas (qué repo de imagen, qué registries de dependencias,
+qué dominios):
 
 ```sh
 sudo statio enable api --image ghcr.io/accentiostudios/api \
   --proxy-domain-suffix example.com --dns-domain-suffix example.com
 ```
 
-Secretos que solo ops debe ver (opcional — la mayoría vienen de GitHub Secrets, ver abajo):
+Secretos que solo ops debe ver (opcional — la mayoría vienen de GitHub Secrets):
 
 ```sh
 sudo statio env set api SOME_OPS_SECRET --secret-stdin --protected
 ```
 
-> 🔒 ¿Imagen en un repo **privado**? Una vez, en el servidor: `docker login ghcr.io` (el
-> agente baja la imagen con el login de Docker del host).
+> 🔒 ¿Imagen en un repo **privado**? Una vez, en el servidor: `docker login ghcr.io` (el agente
+> baja la imagen con el login de Docker del host).
 
-### 3 · Inicia el agente
-
-```sh
-sudo systemctl daemon-reload
-sudo systemctl enable --now statio-agent
-```
-
-### 4 · Define tu app en el repo
-
-En tu repo, un asistente genera el workflow **y** un `statio.yaml` starter:
+### A3 · Inicia el agente — 🖥️
 
 ```sh
-statio init repo
+sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent
 ```
 
-`statio.yaml` describe tu app — servicios, puertos, env, dominio — y es la fuente de verdad:
+---
+
+## Parte B — En tu repo 💻
+
+> Todo en esta parte corre **en tu máquina, dentro del repo de tu proyecto** — NO en el servidor.
+
+### B1 · Prepara el repo — 💻
+
+```sh
+statio init repo      # se ejecuta dentro del repo de tu proyecto
+```
+
+Esto, en tu repo:
+- crea `statio.yaml` si no existe (la config de tu app),
+- detecta tu **identidad de firma** y te la imprime para pegar en la Parte A,
+- mira si ya tenés CI:
+  - **ya tenés un workflow** → te da un *snippet* para pegar en él (no toca tu archivo),
+  - **no tenés CI** → te ofrece generar un `.github/workflows/deploy.yml` listo.
+
+**`statio.yaml`** — describe tu app (la fuente de verdad):
 
 ```yaml
 services:
   - name: api                    # tu app: sin `image:` → se inyecta tu imagen firmada
     ports: [3000]                # → publicado solo en 127.0.0.1:3000
-    env: [DATABASE_URL]          # el VALOR viene de ${{ secrets.DATABASE_URL }}
+    env: [DATABASE_URL]          # solo el NOMBRE; el valor llega desde CI
     env_inline: { NODE_ENV: production }
     health: { path: /health }
 proxy: { domain: api.example.com, upstream: api, upstream_port: 3000 }
 dns:   { domain: api.example.com }
 ```
 
-El asistente imprime los 2 secrets de Tailscale que debes configurar:
+**El step en tu workflow** — donde buildeás y firmás tu imagen, agregá esto (es lo que imprime
+`statio init repo` si ya tenés CI):
 
-```sh
-gh secret set TS_OAUTH_CLIENT_ID     --body '...'
-gh secret set TS_OAUTH_CLIENT_SECRET --body '...'
+```yaml
+permissions:
+  id-token: write        # ← OBLIGATORIO: cosign firma imagen + payload (keyless OIDC)
+  packages: write
+  contents: read
+
+# ...tu build + push de la imagen, dejando el digest en steps.build.outputs.digest...
+- uses: sigstore/cosign-installer@v3
+- run: cosign sign --yes ghcr.io/accentiostudios/api@${{ steps.build.outputs.digest }}
+
+- uses: accentiostudios/statio/action@v1
+  with:
+    target:  statio.tu-tailnet.ts.net          # hostname del agente (= audience firmado)
+    service: api                               # debe estar habilitado en el server
+    image:   ghcr.io/accentiostudios/api       # debe coincidir con `statio enable --image`
+    digest:  ${{ steps.build.outputs.digest }}
+    env: |                                     # un KEY=${{ secrets.KEY }} por cada env de tu statio.yaml
+      DATABASE_URL=${{ secrets.DATABASE_URL }}
+    ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+    ts-oauth-secret:    ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
 ```
 
-Y en GitHub Secrets pones los valores que `statio.yaml` pide (ej. `DATABASE_URL`).
+> ¿Sin CI? `statio init repo` te genera el `deploy.yml` completo. ¿Ya tenés CI? statio **no toca**
+> tu workflow — pegás el step de arriba donde corresponda. Ver la
+> [Referencia del Action](#referencia-del-action-accentiostudiosstatioactionv1).
 
-### 5 · Despliega 🚀
+### B2 · Configura los secrets — 💻 (desde tu máquina, hacia GitHub)
+
+```sh
+gh secret set TS_OAUTH_CLIENT_ID     --body '<tailscale tag:ci oauth client id>'
+gh secret set TS_OAUTH_CLIENT_SECRET --body '<tailscale tag:ci oauth client secret>'
+gh secret set DATABASE_URL           --body 'postgresql://app:...@db:5432/appdb'
+```
+
+> 💡 Regla: `statio.yaml` declara los **nombres** de keys; el bloque `env:` del Action les da el
+> **valor** desde `${{ secrets.* }}`. Lo que no es secreto va en `env_inline`.
+
+### B3 · Despliega 🚀 — 💻
 
 ```sh
 git push
 ```
 
-Eso es todo. CI construye y firma la imagen, **firma el payload de deploy** (misma identidad
-keyless), y manda el envelope firmado. El agente lo verifica, baja la imagen, **genera el
-compose** desde tu `statio.yaml` y recrea los contenedores. Verás el estado por etapa en los
-logs de la Action; el historial queda en `statio logs api`.
+CI buildea y firma la imagen, **firma el payload** (misma identidad keyless) y manda el envelope.
+El agente lo verifica, baja la imagen, **genera el compose** desde tu `statio.yaml` y recrea los
+contenedores. El estado por etapa sale en los logs de la Action; el historial en `statio logs api`.
+
+> 🔒 **Repos privados.** El auto-detect de `init repo` lee tu git remote **local** → funciona
+> igual con repos privados (no necesita auth ni API). La imagen y el código siguen privados; solo
+> tené en cuenta que la firma keyless registra la *identidad* (owner/repo/workflow) en el log
+> público de transparencia (Rekor) — el **nombre** del repo queda público aunque el repo sea privado.
 
 ---
 
 ## Guías
+
+### Referencia del Action (`accentiostudios/statio/action@v1`)
+
+El workflow **debe** declarar `permissions: id-token: write` (cosign keyless firma imagen +
+payload). El Action instala el binario, instala cosign, se une a la tailnet como nodo efímero
+`tag:ci`, y corre `statio deploy`.
+
+| Input | Requerido | Qué es |
+|---|---|---|
+| `target` | sí | hostname MagicDNS del agente (ej. `statio.tu-tailnet.ts.net`). Es el **audience firmado** — debe ser ESE server. |
+| `service` | sí | slot del servicio; debe estar habilitado en el server (`statio enable`). |
+| `image` | sí | repo de tu imagen; debe coincidir con `statio enable --image` (repo-equality). |
+| `digest` | sí | digest a desplegar (`steps.build.outputs.digest`, o un viejo para rollback). |
+| `env` | no | overrides por deploy, líneas `KEY=${{ secrets.KEY }}`. GitHub las enmascara. |
+| `statio-file` | no | ruta del `statio.yaml` (default `statio.yaml`). |
+| `ts-oauth-client-id` / `ts-oauth-secret` | sí | OAuth client de Tailscale **`tag:ci`** (distinto del `tag:agent` del server). |
+| `timeout` | no | timeout del deploy (default `5m`). |
+| `strict` | no | tratar `success_degraded` como fallo (default `false`). |
+
+`deploy-seq` (anti-replay) lo pone el Action solo, desde `github.run_number` — no lo configures.
 
 ### Agregar un dominio (reverse proxy + DNS)
 
