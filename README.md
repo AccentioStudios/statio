@@ -9,9 +9,9 @@
 <p align="center">Deploy to your own server with a <code>git push</code> — no SSH, no open ports.</p>
 
 <p align="center">
-  <a href="https://accentiostudios.github.io/statio/"><b>Documentation</b></a> ·
-  <a href="https://accentiostudios.github.io/statio/getting-started/">Getting started</a> ·
-  <a href="https://accentiostudios.github.io/statio/architecture/">Architecture</a>
+  <a href="https://statio.accentio.dev/"><b>Documentation</b></a> ·
+  <a href="https://statio.accentio.dev/getting-started/">Getting started</a> ·
+  <a href="https://statio.accentio.dev/architecture/">Architecture</a>
 </p>
 
 ---
@@ -34,7 +34,7 @@ What you get:
 - **Just another GitHub Actions step.** No brittle deploy scripts.
 
 > Full docs, guides and the security model live at
-> **[accentiostudios.github.io/statio](https://accentiostudios.github.io/statio/)**.
+> **[statio.accentio.dev](https://statio.accentio.dev/)**.
 
 ---
 
@@ -43,7 +43,7 @@ What you get:
 On the server, a single command:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/accentiostudios/statio/main/install.sh | sudo sh
+curl -fsSL https://statio.accentio.dev/install.sh | sudo sh
 ```
 
 It detects your OS/arch, downloads the binary from GitHub Releases, verifies the checksum, and
@@ -108,16 +108,16 @@ git push                    # CI builds, signs, and deploys
 Configure the secrets the workflow needs (`gh secret set TS_OAUTH_CLIENT_ID …`), then push.
 
 > The full step-by-step — including the workflow snippet, domains, environment variables and
-> rollback — is in the [Getting started guide](https://accentiostudios.github.io/statio/getting-started/).
+> rollback — is in the [Getting started guide](https://statio.accentio.dev/getting-started/).
 
 ---
 
 ## Documentation
 
-- **[Getting started](https://accentiostudios.github.io/statio/getting-started/)** — the full setup walkthrough.
-- **[Guides](https://accentiostudios.github.io/statio/guides/domains/)** — domains, environment variables, rollback, multiple services.
-- **[Reference](https://accentiostudios.github.io/statio/reference/github-action/)** — the GitHub Action inputs and the CLI commands.
-- **[Architecture](https://accentiostudios.github.io/statio/architecture/)** — the security model, deploy pipeline and wire contract.
+- **[Getting started](https://statio.accentio.dev/getting-started/)** — the full setup walkthrough.
+- **[Guides](https://statio.accentio.dev/guides/domains/)** — domains, environment variables, rollback, multiple services.
+- **[Reference](https://statio.accentio.dev/reference/github-action/)** — the GitHub Action inputs and the CLI commands.
+- **[Architecture](https://statio.accentio.dev/architecture/)** — the security model, deploy pipeline and wire contract.
 - **[Contributing](CONTRIBUTING.md)** — how to build, test and propose changes.
 
 ---

@@ -4,9 +4,8 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
-  // Project page on GitHub Pages: https://accentiostudios.github.io/statio/
-  site: 'https://accentiostudios.github.io',
-  base: '/statio',
+  // Served from the custom domain at the root (CNAME: statio.accentio.dev).
+  site: 'https://statio.accentio.dev',
   integrations: [
     starlight({
       title: 'Statio',

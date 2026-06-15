@@ -41,7 +41,7 @@ Action uses the flag form automatically.
 ## Server install & update
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/accentiostudios/statio/main/install.sh | sudo sh
+curl -fsSL https://statio.accentio.dev/install.sh | sudo sh
 ```
 
 Re-running the installer updates only when a newer version exists. `STATIO_VERSION=vX.Y.Z` pins a

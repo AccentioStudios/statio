@@ -49,4 +49,4 @@ The agent runs as root with access to `docker.sock`, so it's root-equivalent. CI
 **RAM-only** and don't appear in logs or the response, but there is **no magic at-rest
 encryption**: `docker inspect` shows them to local root. The real protection is that GitHub
 Secrets is the store, the channel is signed, and nothing touches persistent disk. See the
-[security model](/statio/architecture/#6-security-model) for the full reasoning.
+[security model](/architecture/#6-security-model) for the full reasoning.

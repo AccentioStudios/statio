@@ -13,7 +13,7 @@ Setup touches **two places**. Each command is tagged:
 On the server:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/accentiostudios/statio/main/install.sh | sudo sh
+curl -fsSL https://statio.accentio.dev/install.sh | sudo sh
 ```
 
 It detects your OS/arch, downloads the binary from GitHub Releases, verifies the checksum, and
@@ -65,7 +65,7 @@ your user or organization (on GitHub it's the same field): a personal account us
 
 :::note
 The identity is matched **exactly** — case, branch and workflow filename must all match, or the
-deploy fails at `verify`. See [Footguns of the signing identity](/statio/architecture/#62-footguns-of-the-signing-identity).
+deploy fails at `verify`. See [Footguns of the signing identity](/architecture/#62-footguns-of-the-signing-identity).
 If you already have the repo handy, `statio init repo` (Part B) prints the exact identity ready to paste.
 :::
 
@@ -88,7 +88,7 @@ dependency registries, and the domains. The wizard asks:
 It is separate from `init server` on purpose: a signed deploy **can only deploy to a service you
 already accepted with `enable`**, never create a new one. If your CI is compromised, the attacker
 is bounded to what you enabled. (Full reasoning in
-[Why enable is separate from init server](/statio/architecture/#61-why-enable-is-separate-from-init-server).)
+[Why enable is separate from init server](/architecture/#61-why-enable-is-separate-from-init-server).)
 
 :::note
 Image in a **private** repo? Once, on the server: `docker login ghcr.io` (the agent pulls the image
@@ -167,7 +167,7 @@ permissions:
 ```
 
 statio never modifies your workflow: if you already have one, you paste the step; if not, it
-generates the full `deploy.yml`. The Action inputs are in the [reference](/statio/reference/github-action/).
+generates the full `deploy.yml`. The Action inputs are in the [reference](/reference/github-action/).
 
 ### B2 · Configure the secrets 💻
 
@@ -196,12 +196,12 @@ and recreates the containers. Per-stage status shows in the Action logs; history
 :::note
 `statio init repo`'s auto-detect reads your local git remote, so it works with private repos. The
 image and code stay private, but keyless signing records the repo *identity* in a public log
-(Rekor): the repo **name** becomes public. See [Private repos and Rekor](/statio/architecture/#65-private-repos-and-rekor).
+(Rekor): the repo **name** becomes public. See [Private repos and Rekor](/architecture/#65-private-repos-and-rekor).
 :::
 
 ## Next steps
 
-- [Add a domain](/statio/guides/domains/) — reverse proxy + DNS.
-- [Environment variables](/statio/guides/environment/) — how secrets flow from GitHub to the container.
-- [Rollback](/statio/guides/rollback/) — manual and automatic.
-- [GitHub Action reference](/statio/reference/github-action/) and [CLI reference](/statio/reference/cli/).
+- [Add a domain](/guides/domains/) — reverse proxy + DNS.
+- [Environment variables](/guides/environment/) — how secrets flow from GitHub to the container.
+- [Rollback](/guides/rollback/) — manual and automatic.
+- [GitHub Action reference](/reference/github-action/) and [CLI reference](/reference/cli/).

@@ -1,5 +1,7 @@
 # build output
 dist/
+# generated at build time from the repo-root install.sh
+public/install.sh
 # generated types
 .astro/
 # dependencies

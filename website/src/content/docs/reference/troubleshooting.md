@@ -20,4 +20,4 @@ Every failure carries a stable `code` plus a `hint`. The raw detail (compose out
 | `[timeout]` and it reverts | The app doesn't answer on the health path (loopback). Check the container. |
 
 For the meaning of each pipeline stage and state, see the
-[architecture](/statio/architecture/#3-the-deploy-pipeline).
+[architecture](/architecture/#3-the-deploy-pipeline).

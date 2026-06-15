@@ -42,7 +42,7 @@ gofmt -l .        # must not list any file
 - `cmd/statio` — the binary entrypoint.
 - `internal/` — all the code: `cli`, `agent`, `deploy`, `compose`, `verify`, `spec`, `selfupdate`…
 - `action/` — the GitHub composite Action that runs in CI.
-- `docs/architecture.md` / the [Architecture docs](https://accentiostudios.github.io/statio/architecture/)
+- `docs/architecture.md` / the [Architecture docs](https://statio.accentio.dev/architecture/)
   — architecture, deploy pipeline, wire contract and security model. **Read it before touching** the
   agent, the verifier or the compose generator.
 - `website/` — the documentation site (Astro Starlight). See its pages under
@@ -51,7 +51,7 @@ gofmt -l .        # must not list any file
 ## Security
 
 statio has an explicit security model (cosign signing, server-side anchors, the invariants
-documented in the [Architecture docs](https://accentiostudios.github.io/statio/architecture/)). If
+documented in the [Architecture docs](https://statio.accentio.dev/architecture/)). If
 your change touches verification, payload parsing, compose generation or secret handling, **explain
 in the PR how it preserves those invariants**.
 

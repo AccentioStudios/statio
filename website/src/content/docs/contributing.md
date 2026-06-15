@@ -33,7 +33,7 @@ You'll want **Go** (the version is pinned in `go.mod`), **Docker** to test the a
 ## Security
 
 If your change touches verification, payload parsing, compose generation or secret handling, explain
-in the PR how it preserves the invariants in the [security model](/statio/architecture/#6-security-model).
+in the PR how it preserves the invariants in the [security model](/architecture/#6-security-model).
 Found a vulnerability? Don't open a public issue — use GitHub's private reporting
 (**Security → Report a vulnerability**).
 

@@ -4,7 +4,7 @@ description: How statio works inside — the two parts, the deploy pipeline, the
 ---
 
 This is the technical reference: how statio is built, how a deploy flows end to end, the signed wire
-contract, and the security model. For the usage walkthrough, see [Getting started](/statio/getting-started/).
+contract, and the security model. For the usage walkthrough, see [Getting started](/getting-started/).
 
 ## 1. Two parts, one contract
 
