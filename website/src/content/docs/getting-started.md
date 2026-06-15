@@ -119,7 +119,7 @@ The wizard asks:
 
 ```
   App name                   › api
-  Image repository           › ghcr.io/accentiostudios/api   # the EXACT repo (repo-equality)
+  Image repository           › ghcr.io/accentiostudios/api   # where CI pushes — needn't exist yet
   Allowed registries (deps)  › docker.io, ghcr.io
   GitHub repo of this app    › accentiostudios/api           # who may sign deploys for `api`
   Workflow file / Branch     › deploy.yml / main
@@ -134,6 +134,14 @@ That repo + workflow + branch becomes this app's **cosign signing identity**:
 A signed deploy can only target an app you already accepted — it can never stand one up, and it can
 only deploy what *its* repo signed (full reasoning:
 [per-app signers](/architecture/#61-each-app-pins-its-own-signer)).
+
+:::tip[First time? The image doesn't exist yet — that's fine]
+You set **where CI will push** the image, not an image that already exists. Two different things are
+asked: the **image repository** (`ghcr.io/<org>/<app>` — a registry path) and **this app's GitHub
+repository** (`<owner>/<app>` — the source repo that signs deploys). Your first `git push` is what
+builds the image, pushes it, signs it and deploys it. The repo only needs a `Dockerfile` and the
+workflow `statio init repo` sets up.
+:::
 
 :::note
 Image in a **private** repo? Once, on the server: `docker login ghcr.io` (the agent pulls the image

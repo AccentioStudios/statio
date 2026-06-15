@@ -69,7 +69,7 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 					fields = append(fields, inputField("App name", "The slot CI deploys to (e.g. api). Letters, numbers, - or _", "api", &name, true))
 				}
 				fields = append(fields,
-					inputField("Image repository", "The EXACT repo of your image; CI can only deploy from here (repo-equality). E.g. ghcr.io/your-org/api", "ghcr.io/your-org/api", &image, true),
+					inputField("Image repository", "Where your CI will PUSH the built image — it needn't exist yet. CI can only deploy from this EXACT repo (repo-equality). E.g. ghcr.io/your-org/api", "ghcr.io/your-org/api", &image, true),
 					inputField("Allowed registries (dependencies)", "Comma-separated. Where postgres/redis/etc. may come from.", "docker.io, ghcr.io", &registriesCSV, true),
 				)
 				if err := runForm(fields...); err != nil {
