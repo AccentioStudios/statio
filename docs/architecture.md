@@ -190,6 +190,50 @@ Invariantes que **no se deshacen** (varias verificadas por test):
     cosign es root del host. El gate cosign + el sandbox systemd son los controles
     compensatorios. Rootless Docker = trabajo futuro.
 
+### 6.1 Por qué `enable` está separado de `init server`
+
+`init server` configura el agente una sola vez (identidad de firma, tailnet). `enable` acepta un
+servicio y fija sus anclas, y se repite por servicio. Van separados por seguridad: un deploy, aunque
+llegue firmado y válido, **nunca crea un servicio nuevo por su cuenta** — solo despliega a uno que ops
+ya aceptó con `enable` (invariante de no auto-provisión). Si el repo de CI se compromete, el atacante
+queda acotado al repo de imagen y los dominios fijados; no puede plantar servicios arbitrarios.
+
+### 6.2 Footguns de la identidad de firma
+
+La identidad se compara **exacta**. Los tres errores que dan `verify falla`:
+- **Mayúsculas**: `owner`/`repo` deben coincidir carácter a carácter con GitHub.
+- **Branch**: solo deploya la rama configurada (`@refs/heads/<branch>`).
+- **Workflow**: el nombre del archivo (`deploy.yml`) debe coincidir; un reusable workflow cambia el SAN.
+
+### 6.3 Runbook: compromiso de identidad
+
+Una sola identidad cosign firma **imagen y payload**. Si ese repo/workflow se compromete, un atacante
+puede firmar código + config. Mitigaciones y respuesta:
+
+- **Prevención:** branch protection + required reviews en el repo/ref firmante; alerta en cada deploy
+  (`statio logs`).
+- **Rotación de un secreto filtrado** (sin esperar a CI): `statio env set <svc> KEY --secret-stdin` en
+  el server (la base de ops es el camino break-glass).
+- **Rotar la identidad confiable:** cambiar `cosign.identity` en `/etc/statio/config.yaml`,
+  distribuible a todos los agentes; reinicia `statio-agent`. No hay edición por-servicio.
+- **Acotado por diseño:** aunque el payload esté firmado, el DNS apunta solo a tu IP pinneada, el
+  upstream y los dominios están en allowlist, y el compose generado no puede escalar a root del host
+  (sin privileged/mounts/sock). El daño se limita a "tu propio repo desplegó algo".
+
+### 6.4 Secretos at-rest (claim honesto)
+
+El agente corre como root con `docker.sock`, así que es root-equivalente. Las values de CI son
+**RAM-only** (`/run/statio`, tmpfs) y no salen en logs ni en la respuesta, pero **no hay cifrado
+at-rest mágico**: `docker inspect` se las muestra a root local (inherente). La protección real es que
+GitHub Secrets es el store, el canal va firmado, y nada toca el disco persistente.
+
+### 6.5 Repos privados y Rekor
+
+El auto-detect de `init repo` lee el git remote **local** → funciona con repos privados (sin auth ni
+API). La imagen y el código siguen privados. Pero la firma keyless registra la *identidad*
+(owner/repo/workflow) en el log público de transparencia (Rekor): el **nombre** del repo queda público
+aunque el repo sea privado.
+
 ## 7. Referencia de archivos
 
 ### `/etc/statio/config.yaml`
