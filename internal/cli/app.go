@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/accentiostudios/statio/internal/fsutil"
 	"github.com/charmbracelet/huh"
@@ -63,29 +65,20 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 
 			if interactive() && (name == "" || image == "" || identity == "") {
 				banner("statio · app add", "Accept an app: pin its image, its signer repo and its domains")
-				registriesCSV := strings.Join(registries, ", ")
-				var fields []huh.Field
 				if name == "" {
-					fields = append(fields, inputField("App name", "The slot CI deploys to (e.g. api). Letters, numbers, - or _", "api", &name, true))
+					if err := runForm(inputField("App name", "The slot CI deploys to (e.g. api). Letters, numbers, - or _", "api", &name, true)); err != nil {
+						return err
+					}
 				}
-				fields = append(fields,
-					inputField("Image repository", "Where your CI will PUSH the built image — it needn't exist yet. CI can only deploy from this EXACT repo (repo-equality). E.g. ghcr.io/your-org/api", "ghcr.io/your-org/api", &image, true),
-					inputField("Allowed registries (dependencies)", "Comma-separated. Where postgres/redis/etc. may come from.", "docker.io, ghcr.io", &registriesCSV, true),
-				)
-				if err := runForm(fields...); err != nil {
-					return err
-				}
-				registries = splitCSV(registriesCSV)
 
+				// 1. Ask the signer source repo FIRST — detecting its visibility lets us pre-fill the
+				//    branch and infer the image path instead of asking for them blind.
 				sectionTitle("Who can deploy this app? (cosign signing)")
 				info("The GitHub repo + workflow + branch that signs THIS app's deploys. Each app can")
 				info("come from a different repo or organization — that's why it's asked here, per app.")
 				repoInput, wf, branch := repoFlag, workflowFlag, branchFlag
 				if wf == "" {
 					wf = "deploy.yml"
-				}
-				if branch == "" {
-					branch = "main"
 				}
 				repoField := huh.NewInput().
 					Title("This app's GitHub repository").
@@ -101,18 +94,68 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 				if err := runForm(repoField); err != nil {
 					return err
 				}
-				if err := runForm(
-					inputField("Workflow file", "The .yml in .github/workflows/ of the deploying repo. The one 'statio init repo' generates is deploy.yml.", "deploy.yml", &wf, true),
-					inputField("Authorized branch", "Only deploys from this branch of the repo are accepted. Usually main.", "main", &branch, true),
-				); err != nil {
-					return err
-				}
 				owner, repo, err := parseOwnerRepo(repoInput)
 				if err != nil {
 					return fmt.Errorf("invalid repository: %w", err)
 				}
+
+				// Best-effort detection: public (no auth) → private (gh) → fall back to manual.
+				ictx, cancel := context.WithTimeout(c.Context(), 12*time.Second)
+				ri := inspectGitHubRepo(ictx, owner, repo)
+				cancel()
+				switch {
+				case ri.Known && ri.Private:
+					okLine("Repo %s/%s: PRIVATE (via %s), default branch %q", owner, repo, ri.Source, ri.DefaultBranch)
+					info("Private image → run 'docker login ghcr.io' on this server so the agent can pull it.")
+				case ri.Known:
+					okLine("Repo %s/%s: PUBLIC, default branch %q", owner, repo, ri.DefaultBranch)
+				default:
+					warnLine("Couldn't auto-detect the repo: %s", ri.Note)
+				}
+				if branch == "" {
+					if branch = ri.DefaultBranch; branch == "" {
+						branch = "main"
+					}
+				}
+
+				// 2. Workflow + branch (the branch is pre-filled with the detected default).
+				if err := runForm(
+					inputField("Workflow file", "The .yml in .github/workflows/ of the deploying repo. The one 'statio init repo' generates is deploy.yml.", "deploy.yml", &wf, true),
+					inputField("Authorized branch", "Only deploys from this branch of the repo are accepted.", "main", &branch, true),
+				); err != nil {
+					return err
+				}
 				identity = buildIdentity(owner, repo, trimmed(wf), trimmed(branch))
 
+				// 3. Image repo — infer GHCR under the same repo, or paste another registry.
+				if image == "" {
+					useGHCR := true
+					if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().
+						Title(fmt.Sprintf("Image on GitHub Container Registry under this repo? (%s)", ghcrImage(owner, repo))).
+						Description("Yes = GHCR in the same repo (inferred). No = paste a Docker Hub / other registry path.").
+						Affirmative("Yes, use ghcr").
+						Negative("No, paste another").
+						Value(&useGHCR))).WithTheme(huh.ThemeCharm()).Run(); err != nil {
+						return err
+					}
+					if useGHCR {
+						image = ghcrImage(owner, repo)
+						info("Image repository: %s (needn't exist yet — your CI pushes it)", image)
+					} else if err := runForm(inputField("Image repository",
+						"Where your CI pushes the image (needn't exist yet). E.g. docker.io/your-org/api",
+						"ghcr.io/your-org/api", &image, true)); err != nil {
+						return err
+					}
+				}
+
+				// 4. Allowed registries for dependencies (postgres/redis/…).
+				registriesCSV := strings.Join(registries, ", ")
+				if err := runForm(inputField("Allowed registries (dependencies)", "Comma-separated. Where postgres/redis/etc. may come from.", "docker.io, ghcr.io", &registriesCSV, true)); err != nil {
+					return err
+				}
+				registries = splitCSV(registriesCSV)
+
+				// 5. Optional public domain.
 				wantDomain, err := confirm("Expose a public domain (reverse proxy + DNS)?")
 				if err != nil {
 					return err

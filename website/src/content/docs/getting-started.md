@@ -115,16 +115,22 @@ from **different repos and even different organizations**; each pins its own sig
 sudo statio app add api
 ```
 
-The wizard asks:
+The wizard asks for the **GitHub repo first** and detects the rest from it:
 
 ```
   App name                   › api
-  Image repository           › ghcr.io/accentiostudios/api   # where CI pushes — needn't exist yet
+  This app's GitHub repo     › accentiostudios/api    # detected: PUBLIC, default branch main
+  Workflow file / Branch     › deploy.yml / main      # branch pre-filled from the repo
+  Image on GHCR (this repo)? › Yes → ghcr.io/accentiostudios/api   # inferred; needn't exist yet
   Allowed registries (deps)  › docker.io, ghcr.io
-  GitHub repo of this app    › accentiostudios/api           # who may sign deploys for `api`
-  Workflow file / Branch     › deploy.yml / main
   Expose a public domain?    › no
 ```
+
+After you enter the repo, `app add` looks it up: **public** repos are read from the GitHub API with
+no auth; **private** ones need `gh` installed and logged in on the server (else it just asks you to
+type the branch by hand). From that it pre-fills the default branch and, if you say the image lives
+on GHCR under the same repo, infers `ghcr.io/<owner>/<repo>` (lowercased) so you don't paste a URL —
+or pick "No" to paste a Docker Hub / other registry path.
 
 That repo + workflow + branch becomes this app's **cosign signing identity**:
 `https://github.com/<owner>/<repo>/.github/workflows/<file>@refs/heads/<branch>` — matched exactly
