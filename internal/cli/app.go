@@ -148,12 +148,22 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 					}
 				}
 
-				// 4. Allowed registries for dependencies (postgres/redis/…).
-				registriesCSV := strings.Join(registries, ", ")
-				if err := runForm(inputField("Allowed registries (dependencies)", "Comma-separated. Where postgres/redis/etc. may come from.", "docker.io, ghcr.io", &registriesCSV, true)); err != nil {
+				// 4. Dependency containers (Postgres/Redis/…) are optional — only ask for their
+				//    registry allowlist when the app actually has sidecars, so a single-container
+				//    app doesn't get a registry question right after setting its own image.
+				hasDeps, err := confirm("Does this app run extra containers (Postgres, Redis, …) defined in its statio.yaml?")
+				if err != nil {
 					return err
 				}
-				registries = splitCSV(registriesCSV)
+				if hasDeps {
+					registriesCSV := strings.Join(registries, ", ")
+					if err := runForm(inputField("Registries those containers may come from",
+						"Security allowlist: only these registries can supply the DEPENDENCY images (not your app). Comma-separated. E.g. docker.io, ghcr.io",
+						"docker.io, ghcr.io", &registriesCSV, true)); err != nil {
+						return err
+					}
+					registries = splitCSV(registriesCSV)
+				}
 
 				// 5. Optional public domain.
 				wantDomain, err := confirm("Expose a public domain (reverse proxy + DNS)?")

@@ -122,7 +122,7 @@ The wizard asks for the **GitHub repo first** and detects the rest from it:
   This app's GitHub repo     › accentiostudios/api    # detected: PUBLIC, default branch main
   Workflow file / Branch     › deploy.yml / main      # branch pre-filled from the repo
   Image on GHCR (this repo)? › Yes → ghcr.io/accentiostudios/api   # inferred; needn't exist yet
-  Allowed registries (deps)  › docker.io, ghcr.io
+  Extra containers (DB/…)?   › no                      # single-container app → skip
   Expose a public domain?    › no
 ```
 
