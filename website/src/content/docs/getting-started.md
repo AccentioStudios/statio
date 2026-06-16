@@ -128,7 +128,9 @@ The wizard asks for the **GitHub repo first** and detects the rest from it:
 
 After you enter the repo, `app add` looks it up: **public** repos are read from the GitHub API with
 no auth; **private** ones need `gh` installed and logged in on the server (else it just asks you to
-type the branch by hand). From that it pre-fills the default branch and, if you say the image lives
+type the branch by hand). Since `app add` runs under `sudo`, it calls `gh` as the user you sudo from
+(`$SUDO_USER`) — root has no `gh` login — so log in there as a normal user, not as root. From that
+it pre-fills the default branch and, if you say the image lives
 on GHCR under the same repo, infers `ghcr.io/<owner>/<repo>` (lowercased) so you don't paste a URL —
 or pick "No" to paste a Docker Hub / other registry path.
 

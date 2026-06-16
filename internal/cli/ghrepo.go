@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -68,9 +70,22 @@ func ghPublicRepo(ctx context.Context, owner, repo string) (repoInfo, bool) {
 	return repoInfo{Known: true, Private: out.Private, DefaultBranch: out.DefaultBranch, Source: "public", GHInstalled: true}, true
 }
 
+// ghCommand builds a gh invocation that uses the right login. `app add` runs under sudo (root),
+// but gh's credentials live in the INVOKING user's home, not root's — so as root we re-run gh as
+// $SUDO_USER (root may become any user with no password; -n avoids any prompt). Outside sudo we
+// call gh directly.
+func ghCommand(ctx context.Context, args ...string) *exec.Cmd {
+	if runtime.GOOS != "windows" && os.Geteuid() == 0 {
+		if u := os.Getenv("SUDO_USER"); u != "" && u != "root" {
+			return exec.CommandContext(ctx, "sudo", append([]string{"-n", "-u", u, "gh"}, args...)...)
+		}
+	}
+	return exec.CommandContext(ctx, "gh", args...)
+}
+
 // ghCLIRepo reads a (possibly private) repo through the authenticated gh CLI.
 func ghCLIRepo(ctx context.Context, owner, repo string) (repoInfo, bool) {
-	out, err := exec.CommandContext(ctx, "gh", "api", fmt.Sprintf("repos/%s/%s", owner, repo)).Output()
+	out, err := ghCommand(ctx, "api", fmt.Sprintf("repos/%s/%s", owner, repo)).Output()
 	if err != nil {
 		return repoInfo{}, false
 	}
