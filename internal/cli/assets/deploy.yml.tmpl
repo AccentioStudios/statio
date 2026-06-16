@@ -23,27 +23,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@v3
-      - id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          push: true
-          tags: {{.Image}}:${{ github.sha }}
-      - uses: sigstore/cosign-installer@v3
-      # Sign the immutable digest (never a mutable tag), keyless via the run's OIDC identity.
-      - run: cosign sign --yes {{.Image}}@${{ steps.build.outputs.digest }}
-      # Our tool. It reads statio.yaml, builds the deploy payload, cosign-signs it with the
-      # SAME OIDC identity, and sends the signed envelope. The agent verifies it before acting.
+      # One step does it all: the statio action builds your image, pushes it to GHCR,
+      # cosign-signs it (keyless), signs the deploy payload with the SAME identity, and
+      # deploys it. No separate build-push or cosign steps to wire up.
       - uses: {{.ActionRef}}
         with:
           target: {{.Target}}
           service: {{.Service}}
           image: {{.Image}}
-          digest: ${{ inputs.digest || steps.build.outputs.digest }}
+          # empty on push → the action builds & pushes; set on dispatch to redeploy/rollback.
+          digest: ${{ inputs.digest }}
           ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}

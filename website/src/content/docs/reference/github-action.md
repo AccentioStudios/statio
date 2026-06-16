@@ -5,36 +5,38 @@ sidebar:
   order: 1
 ---
 
-statio ships a GitHub Action, published on the Marketplace as **`accentiostudios/statio@v1`**. It
-installs the pinned `statio` binary, installs cosign, joins your tailnet as an ephemeral `tag:ci`
-node, signs the deploy payload with the run's OIDC identity, and sends the signed envelope to your
-agent.
+statio ships a GitHub Action, published on the Marketplace as **`accentiostudios/statio@v1`**. One
+step does the whole pipeline: it **builds and pushes your image**, **cosign-signs it** keyless,
+installs the pinned `statio` binary, joins your tailnet as an ephemeral `tag:ci` node, **signs the
+deploy payload** with the same OIDC identity, and sends the signed envelope to your agent — no
+separate `build-push`, `cosign-installer` or `cosign sign` steps to wire up.
 
 ## Minimal usage
 
-Add this step **after** you build, push and sign your image:
-
 ```yaml
+- uses: actions/checkout@v4
 - uses: accentiostudios/statio@v1
   with:
     target: statio.your-tailnet.ts.net          # the agent's MagicDNS host (= signed audience)
     service: api                                # must be accepted on the server (statio app add)
-    image: ghcr.io/accentiostudios/api          # must match `statio app add --image`
-    digest: ${{ steps.build.outputs.digest }}
+    image: ghcr.io/accentiostudios/api          # the action builds+pushes here; the agent runs it
     ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}  # minted by `statio init server`
     env: |                                      # optional per-deploy env, from GitHub Secrets
       DATABASE_URL=${{ secrets.DATABASE_URL }}
 ```
 
 :::caution
-Your job **must** grant `permissions: id-token: write` so cosign can sign the image and the payload
-keyless via the run's OIDC identity. Without it, the agent rejects the deploy.
+Your job **must** grant `permissions: id-token: write` (keyless cosign), `packages: write` (push to
+GHCR) and `contents: read`. Without `id-token: write` the agent rejects the deploy.
 :::
+
+Already build the image in your own steps? Pass `digest: ${{ steps.build.outputs.digest }}` and the
+action **skips building** (it still signs + deploys). Add `sign: false` if you also sign it yourself.
 
 ## Full workflow
 
-A complete `.github/workflows/deploy.yml` — build, push, sign, deploy. This is exactly what
-`statio init repo` generates when your repo has no CI yet:
+A complete `.github/workflows/deploy.yml` — exactly what `statio init repo` generates when your repo
+has no CI yet:
 
 ```yaml
 name: deploy
@@ -62,29 +64,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@v3
-      - id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          push: true
-          tags: ghcr.io/accentiostudios/api:${{ github.sha }}
-      - uses: sigstore/cosign-installer@v3
-      # Sign the immutable digest (never a mutable tag), keyless via the run's OIDC identity.
-      - run: cosign sign --yes ghcr.io/accentiostudios/api@${{ steps.build.outputs.digest }}
-      # statio reads statio.yaml, signs the payload with the SAME OIDC identity, and sends the
-      # signed envelope. The agent verifies it before acting.
+      # One step builds + pushes + signs the image, then signs the payload and deploys.
       - uses: accentiostudios/statio@v1
         with:
           target: statio.your-tailnet.ts.net
           service: api
           image: ghcr.io/accentiostudios/api
-          digest: ${{ inputs.digest || steps.build.outputs.digest }}
+          digest: ${{ inputs.digest }}          # empty on push → the action builds; set to redeploy
           ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}
           env: |
             DATABASE_URL=${{ secrets.DATABASE_URL }}
@@ -99,8 +85,13 @@ to your existing one, and never touches your file.
 |---|---|---|
 | `target` | yes | The agent's MagicDNS host (e.g. `statio.your-tailnet.ts.net`). It is the **signed audience** — the deploy is bound to that server. |
 | `service` | yes | The app slot; must be accepted on the server (`statio app add`). |
-| `image` | yes | Your image repository; must match `statio app add --image` (repo-equality). |
-| `digest` | yes | The digest to deploy (`steps.build.outputs.digest`, or an old one for rollback). |
+| `image` | yes | Your image repository; the action builds + pushes here, and it must match `statio app add --image` (repo-equality). |
+| `digest` | no | Deploy this exact digest and **skip building**. Leave empty to let the action build & push (`steps.build.outputs.digest` from your own build, or an old digest for rollback). |
+| `dockerfile` | no | Dockerfile path when the action builds (default `Dockerfile`). |
+| `context` | no | Build context when the action builds (default `.`). |
+| `image-tag` | no | Tag to push the built image under (default `${{ github.sha }}`; the deployed reference is always the digest). |
+| `sign` | no | cosign-sign the image (default `true`). Set `false` only if you sign it yourself. |
+| `registry-username` / `registry-password` | no | Registry login when the action pushes. Default to the GitHub actor + `GITHUB_TOKEN` (GHCR). Set both for Docker Hub / other registries. |
 | `env` | no | Per-deploy overrides, `KEY=${{ secrets.KEY }}` lines. GitHub masks them. |
 | `statio-file` | no | Path to `statio.yaml` (default `statio.yaml`). |
 | `ts-authkey` | yes | The Tailscale **`tag:ci`** auth key minted by `statio init server` (the `STATIO_TS_AUTHKEY` secret). |

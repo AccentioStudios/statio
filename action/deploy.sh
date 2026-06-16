@@ -5,11 +5,20 @@
 # `set -x` (it would echo values); ::add-mask:: is belt-and-suspenders for masking.
 set -euo pipefail
 
+# The digest is either passed in (caller built the image) or resolved by build-sign.sh, which
+# exports STATIO_RESOLVED_DIGEST into the job env after it builds + pushes.
+digest="${STATIO_DIGEST:-}"
+[[ -z "$digest" ]] && digest="${STATIO_RESOLVED_DIGEST:-}"
+if [[ -z "$digest" ]]; then
+  echo "statio: no image digest — pass 'digest' or let the action build the image" >&2
+  exit 1
+fi
+
 args=(
   --target "$STATIO_TARGET"
   --service "$STATIO_SERVICE"
   --image "$STATIO_IMAGE"
-  --digest "$STATIO_DIGEST"
+  --digest "$digest"
   --deploy-seq "$STATIO_DEPLOY_SEQ"
   --timeout "$STATIO_TIMEOUT"
 )

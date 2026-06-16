@@ -210,32 +210,30 @@ both: `statio.yaml` is the single source of truth. This is what guarantees the d
 `privileged`, host bind-mounts, or host networking (those fields don't exist in `statio.yaml`).
 :::
 
-The workflow step goes where you build and sign your image. It's what `statio init repo` prints
-when you already have CI:
+One step does the whole pipeline — build, push, sign, deploy. It's what `statio init repo` prints:
 
 ```yaml
 permissions:
   id-token: write        # REQUIRED: cosign signs the image + payload (keyless OIDC)
-  packages: write
+  packages: write        # push the image to GHCR
   contents: read
 
-# ...your build + push of the image, leaving the digest in steps.build.outputs.digest...
-- uses: sigstore/cosign-installer@v3
-- run: cosign sign --yes ghcr.io/accentiostudios/api@${{ steps.build.outputs.digest }}
-
+- uses: actions/checkout@v4
 - uses: accentiostudios/statio@v1
   with:
     target:  statio.your-tailnet.ts.net        # the agent's hostname (= signed audience)
     service: api                               # must be accepted on the server (statio app add)
-    image:   ghcr.io/accentiostudios/api       # must match `statio app add --image`
-    digest:  ${{ steps.build.outputs.digest }}
+    image:   ghcr.io/accentiostudios/api       # the action builds+pushes here; must match statio app add --image
     env: |                                     # one KEY=${{ secrets.KEY }} per env in your statio.yaml
       DATABASE_URL=${{ secrets.DATABASE_URL }}
     ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}   # the key minted by `statio init server`
 ```
 
-statio never modifies your workflow: if you already have one, you paste the step; if not, it
-generates the full `deploy.yml`. The Action inputs are in the [reference](/reference/github-action/).
+The action builds your `Dockerfile`, pushes the image to GHCR, cosign-signs it, signs the payload
+and deploys — no separate build-push or cosign steps. Already build the image yourself? Pass
+`digest: ${{ steps.build.outputs.digest }}` and it skips building. statio never modifies your
+workflow: if you already have one, you paste the step; if not, it generates the full `deploy.yml`.
+The Action inputs are in the [reference](/reference/github-action/).
 
 ### B2 · Configure the secrets 💻
 

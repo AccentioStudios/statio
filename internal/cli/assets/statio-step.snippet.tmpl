@@ -1,22 +1,21 @@
-# ── statio: agrega esto a tu workflow de GitHub Actions ──
+# ── statio: one step builds, signs and deploys your image ──
 
-# 1) Tu job necesita estos permisos (a nivel job o workflow):
+# Your job needs these permissions (job or workflow level):
 #      permissions:
-#        id-token: write   # cosign firma imagen + payload (keyless OIDC)
-#        packages: write   # push a GHCR
+#        id-token: write   # cosign keyless signing (image + deploy payload)
+#        packages: write   # push the image to GHCR
 #        contents: read
 
-# 2) Después de construir y publicar tu imagen, fírmala (si tu workflow aún no lo hace):
-- uses: sigstore/cosign-installer@v3
-- run: cosign sign --yes {{.Image}}@${{ steps.build.outputs.digest }}
-
-# 3) El step de statio: lee statio.yaml, firma el payload y manda el envelope firmado.
+- uses: actions/checkout@v4
 - uses: {{.ActionRef}}
   with:
-    target:  {{.Target}}          # hostname del agente (= audience firmado)
-    service: {{.Service}}         # debe estar aceptado en el server (statio app add)
-    image:   {{.Image}}           # debe coincidir con statio app add --image
-    digest:  ${{ steps.build.outputs.digest }}
-    env: |                        # un KEY=${{ secrets.KEY }} por cada env que pide tu statio.yaml
+    target:  {{.Target}}          # the agent (statio printed this on the server)
+    service: {{.Service}}         # must be accepted on the server (statio app add)
+    image:   {{.Image}}           # the action builds + pushes here; the agent runs it
+    env: |                        # one KEY=${{ secrets.KEY }} per env your statio.yaml needs
       DATABASE_URL=${{ secrets.DATABASE_URL }}
-    ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}   # la auth key que creó statio init server
+    ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}   # the auth key statio init server created
+
+# Already build the image in your own step? Pass its digest and the action skips building
+# (it still signs + deploys):  digest: ${{ steps.build.outputs.digest }}
+# Sign it yourself too? Add:    sign: false

@@ -164,6 +164,14 @@ func newInitServerCmd() *cobra.Command {
 					codeBlock("sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent")
 				} else {
 					okLine("Agent enabled and started (statio-agent)")
+					// Wait for the agent to join the tailnet and persist its address, so we can
+					// print the exact CI target and 'statio app add' can fill it in for the user.
+					info("Waiting for the agent to join the tailnet…")
+					if aud := waitAudience("/var/lib/statio", 25*time.Second); aud != "" {
+						okLine("Agent address — use this as the CI 'target': %s", aud)
+					} else {
+						info("Still joining. Its address (the CI 'target') shows in 'statio status' once up.")
+					}
 				}
 			} else {
 				info("Start the agent on the server (systemd):")
@@ -206,6 +214,24 @@ func newInitServerCmd() *cobra.Command {
 	f.IntVar(&keyDays, "ci-key-days", 90, "validity (days) of the minted tag:ci auth key")
 	f.StringVar(&tailnetAPI, "tailscale-api", "", "Tailscale API base (for testing; defaults to public)")
 	return cmd
+}
+
+// waitAudience polls for the agent's persisted MagicDNS address (written on tailnet join) up to
+// the timeout, so init server can print the exact CI target instead of a placeholder. Returns ""
+// if it doesn't appear in time (the agent may still be getting approved).
+func waitAudience(stateDir string, timeout time.Duration) string {
+	deadline := time.Now().Add(timeout)
+	for {
+		if b, err := os.ReadFile(filepath.Join(stateDir, "audience")); err == nil {
+			if s := strings.TrimSpace(string(b)); s != "" {
+				return s
+			}
+		}
+		if time.Now().After(deadline) {
+			return ""
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 func writeServerFiles(hostname, issuer, configPath, clientID, clientSecret string) error {

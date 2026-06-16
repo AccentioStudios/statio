@@ -46,6 +46,10 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 		Args:    cobra.MaximumNArgs(1),
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
+			// app add only makes sense once the agent is configured — refuse before init server.
+			if _, err := os.Stat(filepath.Join(filepath.Dir(servicesDir), "config.yaml")); err != nil {
+				return fmt.Errorf("this server isn't set up yet — run 'sudo statio init server' first")
+			}
 			if issuer == "" {
 				issuer = "https://token.actions.githubusercontent.com"
 			}
@@ -225,6 +229,10 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 			}
 			sectionTitle("In your repo 💻 — add this step to your workflow")
 			printSnippet(targetOrPlaceholder(target), name, image, actionRef)
+			if target == "" {
+				info("(Couldn't read the agent's address yet — it appears once the agent finishes joining")
+				info(" the tailnet. Get it with 'statio status' and replace the target placeholder above.)")
+			}
 			sectionTitle("GitHub secrets 💻 — on YOUR machine (gh logged in), not this server")
 			info("Use --repo so you needn't be inside the repo (or drop it and run from within it):")
 			codeBlock(

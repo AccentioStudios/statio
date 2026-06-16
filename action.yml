@@ -16,8 +16,33 @@ inputs:
     description: "Your app's image repository (e.g. ghcr.io/org/api)"
     required: true
   digest:
-    description: "Image digest (sha256:...), e.g. steps.build.outputs.digest"
-    required: true
+    description: "Image digest (sha256:...). Leave empty to let the action build & push the image for you."
+    required: false
+    default: ""
+  dockerfile:
+    description: "Dockerfile path, when the action builds the image"
+    required: false
+    default: "Dockerfile"
+  context:
+    description: "Docker build context, when the action builds the image"
+    required: false
+    default: "."
+  image-tag:
+    description: "Tag to push the built image under (the deployed reference is always the digest)"
+    required: false
+    default: ${{ github.sha }}
+  sign:
+    description: "cosign-sign the image with the run's keyless identity. Disable only if you already sign it yourself."
+    required: false
+    default: "true"
+  registry-username:
+    description: "Registry login user when the action pushes (defaults to the GitHub actor, for GHCR)"
+    required: false
+    default: ""
+  registry-password:
+    description: "Registry login token when the action pushes (defaults to GITHUB_TOKEN, for GHCR; needs packages: write)"
+    required: false
+    default: ""
   statio-file:
     description: "Path to the repo's statio.yaml (services + proxy + dns)"
     required: false
@@ -53,6 +78,18 @@ runs:
       run: ${{ github.action_path }}/action/install-statio.sh "${{ inputs.statio-version }}"
     - name: Install cosign
       uses: sigstore/cosign-installer@v3
+    - name: Build, push & sign the image
+      shell: bash
+      env:
+        STATIO_IMAGE: ${{ inputs.image }}
+        STATIO_DIGEST: ${{ inputs.digest }}
+        STATIO_DOCKERFILE: ${{ inputs.dockerfile }}
+        STATIO_CONTEXT: ${{ inputs.context }}
+        STATIO_TAG: ${{ inputs.image-tag }}
+        STATIO_SIGN: ${{ inputs.sign }}
+        STATIO_REGISTRY_USERNAME: ${{ inputs.registry-username || github.actor }}
+        STATIO_REGISTRY_PASSWORD: ${{ inputs.registry-password || github.token }}
+      run: ${{ github.action_path }}/action/build-sign.sh
     - name: Join tailnet (ephemeral tag:ci node)
       uses: tailscale/github-action@v3
       with:
