@@ -241,6 +241,11 @@ func writeServerFiles(hostname, issuer, configPath, clientID, clientSecret strin
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		return err
 	}
+	// Create the state dir up front: the systemd unit lists it in ReadWritePaths, and systemd
+	// fails the service with 226/NAMESPACE if it doesn't exist when the sandbox is set up.
+	if err := os.MkdirAll("/var/lib/statio", 0o700); err != nil {
+		return err
+	}
 	oauth := fmt.Sprintf(`{"client_id":%q,"client_secret":%q}`, clientID, clientSecret)
 	if err := fsutil.SecureWrite("/etc/statio/secrets/oauth.json", []byte(oauth), 0o600); err != nil {
 		return err

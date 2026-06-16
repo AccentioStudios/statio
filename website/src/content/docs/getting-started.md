@@ -20,6 +20,13 @@ It detects your OS/arch, downloads the binary from GitHub Releases, verifies the
 installs it to `/usr/local/bin/statio`. You also need **Docker** on the server and a **Tailscale**
 account (the free plan is enough).
 
+:::tip[Check your setup anytime with `statio doctor`]
+Like `flutter doctor`, `sudo statio doctor` tells you what's installed and configured (Docker + its
+login, gh + its login, the agent config, the state dir, the service) and flags what's missing.
+`sudo statio doctor --fix` even repairs the common issues for you. Run it whenever something feels
+off.
+:::
+
 ## Step 0 · Tailscale (once, on the web)
 
 Tailscale is the **private channel CI uses to reach the agent** — it replaces SSH, so the agent
@@ -166,12 +173,17 @@ sudo statio app add api --image ghcr.io/accentiostudios/api \
 
 ### A3 · Verify the agent 🖥️
 
-`init server` already enabled and started the `statio-agent` service. Confirm it's up:
+`init server` already enabled and started the `statio-agent` service. Check everything with one
+command — `statio doctor`, in the spirit of `flutter doctor`:
 
 ```sh
-systemctl status statio-agent      # active (running)
-statio status                      # the agent's own view
+sudo statio doctor                 # version, docker + login, agent config, state dir, the service…
+sudo statio doctor --fix           # and fix what it safely can (e.g. a missing state dir, restart)
 ```
+
+Run it with **sudo** on the server: the config (`0600` root), the agent's docker login and the
+service status all need root. Without sudo it still checks everything it can and tells you to re-run
+with sudo for the rest.
 
 ## Part B — In your repo 💻
 

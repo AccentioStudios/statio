@@ -16,6 +16,12 @@ WatchdogSec=30s
 RuntimeDirectory=statio
 RuntimeDirectoryMode=0700
 
+# /var/lib/statio (state: audience, audit log, tsnet). systemd creates it BEFORE setting up the
+# mount namespace, so ProtectSystem=strict + ReadWritePaths below don't fail with 226/NAMESPACE
+# when the dir doesn't pre-exist.
+StateDirectory=statio
+StateDirectoryMode=0700
+
 # docker.sock is root-equivalent, so the agent runs as root; the compensating controls
 # are cosign verify-before-act and this sandbox shrinking the agent's own attack surface.
 NoNewPrivileges=yes
