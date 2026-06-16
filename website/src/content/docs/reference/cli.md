@@ -11,7 +11,8 @@ statio init integrations    # wizard: NPMplus + Cloudflare + public IP
 statio init repo            # wizard: statio.yaml + how to call the Action
 
 statio app add [name]       # wizard: accept an app — image repo, signer identity, domains
-statio app list             # list the accepted apps
+statio app list             # list apps; pick one to view its config + setup steps, or edit it
+statio app edit <name>      # re-run the wizard (current values pre-filled) to change an app
 statio app rm <name>        # stop accepting an app's deploys
 
 statio env set <svc> KEY=VALUE [--protected] [--required]
@@ -27,8 +28,10 @@ statio doctor                                    # environment diagnostics
 statio version                                   # or: statio --version
 ```
 
-The wizards (`init server`, `init integrations`, `init repo`, `app add`) are interactive: run them
-without flags and they guide you. In CI/scripts they accept flags and secrets via `--*-stdin`; the
+The wizards (`init server`, `init integrations`, `init repo`, `app add`, `app edit`) are
+interactive: run them without flags and they guide you. `app list` is interactive too — it lets you
+pick an app and then view its config (with the workflow snippet and secrets) or re-run the wizard to
+edit it. In CI/scripts they accept flags and secrets via `--*-stdin`; the
 Action uses the flag form automatically. (`statio enable` is a deprecated alias of `statio app add`.)
 
 ## Self-update & diagnostics

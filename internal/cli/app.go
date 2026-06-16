@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/accentiostudios/statio/internal/deploy"
 	"github.com/accentiostudios/statio/internal/fsutil"
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
@@ -19,7 +20,7 @@ import (
 // already-accepted app — standing one up is never a side effect of a payload (invariant #18).
 func newAppCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "app", Short: "Manage the apps allowed to deploy to this server"}
-	cmd.AddCommand(newAppAddCmd("add [name]", false), newAppListCmd(), newAppRmCmd())
+	cmd.AddCommand(newAppAddCmd("add [name]", false), newAppListCmd(), newAppEditCmd(), newAppRmCmd())
 	return cmd
 }
 
@@ -199,25 +200,13 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 				return fmt.Errorf("--repo (the app's signing identity) is required")
 			}
 
-			dir := filepath.Join(servicesDir, name)
-			if err := os.MkdirAll(filepath.Join(dir, "secrets"), 0o700); err != nil {
-				return err
-			}
-			var b strings.Builder
-			fmt.Fprintf(&b, "apiVersion: statio/v1\nkind: ServiceDeploy\nname: %s\n", name)
-			fmt.Fprintf(&b, "signer:\n  oidc_issuer: %s\n  identity: %s\n", issuer, identity)
-			fmt.Fprintf(&b, "image:\n  repository: %s\n", image)
-			fmt.Fprintf(&b, "max_services: %d\n", maxServices)
-			writeList(&b, "registries", registries)
-			fmt.Fprintf(&b, "proxy:\n")
-			writeListIndented(&b, "allowed_domain_suffixes", proxySuffixes)
-			writeListIndented(&b, "allowed_upstream_hosts", upstreams)
-			fmt.Fprintf(&b, "dns:\n")
-			writeListIndented(&b, "allowed_domain_suffixes", dnsSuffixes)
-			fmt.Fprintf(&b, "rollback:\n  enabled: %v\n  env_policy: with-digest\n", rollback)
-
-			path := filepath.Join(dir, "manifest.yaml")
-			if err := fsutil.SecureWrite(path, []byte(b.String()), 0o600); err != nil {
+			path, err := writeAppManifest(servicesDir, appManifest{
+				name: name, issuer: issuer, identity: identity, image: image,
+				registries: registries, maxServices: maxServices,
+				proxySuffixes: proxySuffixes, upstreams: upstreams, dnsSuffixes: dnsSuffixes,
+				rollback: rollback,
+			})
+			if err != nil {
 				return err
 			}
 			okLine("App %q accepted: %s", name, path)
@@ -262,39 +251,83 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 }
 
 func newAppListCmd() *cobra.Command {
-	var servicesDir string
+	var servicesDir, stateDir, actionRef string
 	cmd := &cobra.Command{
 		Use:     "list",
-		Short:   "List the apps accepted on this server",
+		Short:   "List the accepted apps; pick one to view or edit its config",
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, _ []string) error {
-			entries, err := os.ReadDir(servicesDir)
+			names, err := listAcceptedApps(servicesDir)
 			if err != nil {
-				if os.IsNotExist(err) {
-					info("No apps accepted yet (run 'statio app add').")
-					return nil
-				}
 				return err
 			}
-			found := false
-			for _, e := range entries {
-				if !e.IsDir() {
-					continue
-				}
-				if _, err := os.Stat(filepath.Join(servicesDir, e.Name(), "manifest.yaml")); err != nil {
-					continue
-				}
-				found = true
-				okLine("%s", e.Name())
-			}
-			if !found {
+			if len(names) == 0 {
 				info("No apps accepted yet (run 'statio app add').")
+				return nil
 			}
-			return nil
+			for _, n := range names {
+				okLine("%s", n)
+			}
+			if !interactive() {
+				return nil
+			}
+
+			// Pick an app, then choose to view or edit it.
+			choice := ""
+			opts := make([]huh.Option[string], 0, len(names)+1)
+			for _, n := range names {
+				opts = append(opts, huh.NewOption(n, n))
+			}
+			opts = append(opts, huh.NewOption("(exit)", ""))
+			if err := huh.NewForm(huh.NewGroup(huh.NewSelect[string]().
+				Title("Pick an app").Options(opts...).Value(&choice))).
+				WithTheme(huh.ThemeCharm()).Run(); err != nil {
+				return err
+			}
+			if choice == "" {
+				return nil
+			}
+			action := "view"
+			if err := huh.NewForm(huh.NewGroup(huh.NewSelect[string]().
+				Title(fmt.Sprintf("%s — view or edit?", choice)).
+				Options(
+					huh.NewOption("View config + setup steps", "view"),
+					huh.NewOption("Edit config (re-run the wizard)", "edit"),
+				).Value(&action))).WithTheme(huh.ThemeCharm()).Run(); err != nil {
+				return err
+			}
+			if action == "edit" {
+				return editAppInteractive(servicesDir, stateDir, actionRef, choice)
+			}
+			return showAppDetails(servicesDir, stateDir, actionRef, choice)
 		},
 	}
-	cmd.Flags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
+	f := cmd.Flags()
+	f.StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
+	f.StringVar(&stateDir, "state-dir", "/var/lib/statio", "state directory (to resolve the target)")
+	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio@v1", "ref of the statio Action (Marketplace)")
 	return cmd
+}
+
+// listAcceptedApps returns the names of all apps with a manifest under servicesDir.
+func listAcceptedApps(servicesDir string) ([]string, error) {
+	entries, err := os.ReadDir(servicesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(servicesDir, e.Name(), "manifest.yaml")); err == nil {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
 }
 
 func newAppRmCmd() *cobra.Command {
@@ -332,6 +365,239 @@ func newAppRmCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for confirmation")
+	return cmd
+}
+
+// appManifest is the set of fields `app add` / `app edit` write to a service manifest.
+type appManifest struct {
+	name, issuer, identity, image         string
+	registries                            []string
+	maxServices                           int
+	proxySuffixes, upstreams, dnsSuffixes []string
+	rollback                              bool
+}
+
+// writeAppManifest renders and writes a service manifest. Shared by `app add` and `app edit` so
+// both produce byte-identical files.
+func writeAppManifest(servicesDir string, m appManifest) (string, error) {
+	dir := filepath.Join(servicesDir, m.name)
+	if err := os.MkdirAll(filepath.Join(dir, "secrets"), 0o700); err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "apiVersion: statio/v1\nkind: ServiceDeploy\nname: %s\n", m.name)
+	fmt.Fprintf(&b, "signer:\n  oidc_issuer: %s\n  identity: %s\n", m.issuer, m.identity)
+	fmt.Fprintf(&b, "image:\n  repository: %s\n", m.image)
+	fmt.Fprintf(&b, "max_services: %d\n", m.maxServices)
+	writeList(&b, "registries", m.registries)
+	fmt.Fprintf(&b, "proxy:\n")
+	writeListIndented(&b, "allowed_domain_suffixes", m.proxySuffixes)
+	writeListIndented(&b, "allowed_upstream_hosts", m.upstreams)
+	fmt.Fprintf(&b, "dns:\n")
+	writeListIndented(&b, "allowed_domain_suffixes", m.dnsSuffixes)
+	fmt.Fprintf(&b, "rollback:\n  enabled: %v\n  env_policy: with-digest\n", m.rollback)
+
+	path := filepath.Join(dir, "manifest.yaml")
+	if err := fsutil.SecureWrite(path, []byte(b.String()), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// parseSignerIdentity reverses buildIdentity: it pulls owner/repo/workflow/branch back out of a
+// stored cosign identity URL so `app edit` can pre-fill the wizard with the current values.
+func parseSignerIdentity(id string) (owner, repo, workflow, branch string, ok bool) {
+	s := strings.TrimPrefix(id, "https://github.com/")
+	if s == id {
+		return
+	}
+	at := strings.LastIndex(s, "@refs/heads/")
+	if at < 0 {
+		return
+	}
+	branch = s[at+len("@refs/heads/"):]
+	left := s[:at] // owner/repo/.github/workflows/<file>
+	const marker = "/.github/workflows/"
+	mi := strings.Index(left, marker)
+	if mi < 0 {
+		return
+	}
+	workflow = left[mi+len(marker):]
+	parts := strings.SplitN(left[:mi], "/", 2)
+	if len(parts) != 2 {
+		return
+	}
+	owner, repo = parts[0], parts[1]
+	ok = owner != "" && repo != "" && workflow != "" && branch != ""
+	return
+}
+
+// loadAppSeed reads an accepted app's manifest into the editable field set.
+func loadAppSeed(servicesDir, name string) (appManifest, error) {
+	m, err := deploy.LoadManifest(filepath.Join(servicesDir, name))
+	if err != nil {
+		return appManifest{}, err
+	}
+	seed := appManifest{
+		name:          m.Name,
+		image:         m.Image.Repository,
+		registries:    m.Registries,
+		maxServices:   m.MaxServices,
+		proxySuffixes: m.Proxy.AllowedDomainSuffixes,
+		upstreams:     m.Proxy.AllowedUpstreamHosts,
+		dnsSuffixes:   m.DNS.AllowedDomainSuffixes,
+		rollback:      m.Rollback.Enabled,
+	}
+	if m.Signer != nil {
+		seed.issuer = m.Signer.OIDCIssuer
+		seed.identity = m.Signer.Identity
+	}
+	return seed, nil
+}
+
+// showAppDetails prints an accepted app's config and reprints its setup steps (the workflow
+// snippet + the GitHub secrets), so the operator can review everything without re-running add.
+func showAppDetails(servicesDir, stateDir, actionRef, name string) error {
+	seed, err := loadAppSeed(servicesDir, name)
+	if err != nil {
+		return err
+	}
+	sectionTitle(fmt.Sprintf("App: %s", name))
+	info("image repo:       %s", seed.image)
+	info("signing identity: %s", seed.identity)
+	if owner, repo, wf, branch, ok := parseSignerIdentity(seed.identity); ok {
+		info("  repo %s/%s · workflow %s · branch %s", owner, repo, wf, branch)
+	}
+	info("dep registries:   %s", strings.Join(seed.registries, ", "))
+	if len(seed.proxySuffixes) > 0 || len(seed.dnsSuffixes) > 0 {
+		info("proxy domains:    %s", strings.Join(seed.proxySuffixes, ", "))
+		info("dns domains:      %s", strings.Join(seed.dnsSuffixes, ", "))
+	}
+
+	target := readAudience(stateDir)
+	sectionTitle("In your repo 💻 — the workflow step")
+	printSnippet(targetOrPlaceholder(target), name, seed.image, actionRef)
+	sectionTitle("GitHub secrets 💻 — on YOUR machine (gh logged in), not this server")
+	codeBlock(
+		"gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body '<the key statio init server printed>'",
+		"gh secret set DATABASE_URL      --repo <owner>/<repo> --body '<value for each env in your statio.yaml>'",
+	)
+	return nil
+}
+
+// editAppInteractive re-runs the wizard for an accepted app with its current values pre-filled,
+// and rewrites the manifest. Shared by `app edit` and `app list` → Edit.
+func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
+	if !interactive() {
+		return fmt.Errorf("app edit is interactive; run it in a terminal")
+	}
+	seed, err := loadAppSeed(servicesDir, name)
+	if err != nil {
+		return err
+	}
+	banner("statio · app edit", fmt.Sprintf("Edit %s — current values are pre-filled; change what you need", name))
+
+	issuer := seed.issuer
+	if issuer == "" {
+		issuer = "https://token.actions.githubusercontent.com"
+	}
+	repoInput, wf, branch := "", "deploy.yml", "main"
+	if owner, repo, w, b, ok := parseSignerIdentity(seed.identity); ok {
+		repoInput, wf, branch = owner+"/"+repo, w, b
+	}
+	repoField := huh.NewInput().
+		Title("This app's GitHub repository").
+		Description("owner/repo (the repo that signs this app's deploys)").
+		Placeholder("accentiostudios/api").
+		Value(&repoInput).
+		Validate(func(s string) error {
+			if _, _, err := parseOwnerRepo(s); err != nil {
+				return fmt.Errorf("enter owner/repo (e.g. accentiostudios/api)")
+			}
+			return nil
+		})
+	if err := runForm(repoField); err != nil {
+		return err
+	}
+	if err := runForm(
+		inputField("Workflow file", "Exact file name of the workflow that builds & signs this app (under .github/workflows/).", "deploy.yml", &wf, true),
+		inputField("Authorized branch", "Only deploys from this branch are accepted.", "main", &branch, true),
+	); err != nil {
+		return err
+	}
+	owner, repo, err := parseOwnerRepo(repoInput)
+	if err != nil {
+		return fmt.Errorf("invalid repository: %w", err)
+	}
+	identity := buildIdentity(owner, repo, trimmed(wf), trimmed(branch))
+
+	image := seed.image
+	if err := runForm(inputField("Image repository", "Where your CI pushes the image (the action builds+pushes here).", "ghcr.io/your-org/api", &image, true)); err != nil {
+		return err
+	}
+
+	registriesCSV := strings.Join(seed.registries, ", ")
+	if err := runForm(inputField("Allowed registries (dependencies)", "Comma-separated allowlist for sidecar images (postgres/redis/…).", "docker.io, ghcr.io", &registriesCSV, true)); err != nil {
+		return err
+	}
+	registries := splitCSV(registriesCSV)
+
+	proxySuffixes, dnsSuffixes, upstreams := seed.proxySuffixes, seed.dnsSuffixes, seed.upstreams
+	wantDomain, err := confirm("Expose a public domain (reverse proxy + DNS)?")
+	if err != nil {
+		return err
+	}
+	if wantDomain {
+		suffix, upstream := "", name
+		if len(seed.proxySuffixes) > 0 {
+			suffix = seed.proxySuffixes[0]
+		}
+		if len(seed.upstreams) > 0 {
+			upstream = seed.upstreams[0]
+		}
+		if err := runForm(
+			inputField("Allowed domain suffix", "Only domains under this suffix are accepted. E.g. example.com", "example.com", &suffix, true),
+			inputField("Upstream (target container)", "The service the proxy points to", name, &upstream, true),
+		); err != nil {
+			return err
+		}
+		proxySuffixes, dnsSuffixes, upstreams = []string{suffix}, []string{suffix}, []string{upstream}
+	} else {
+		proxySuffixes, dnsSuffixes, upstreams = nil, nil, nil
+	}
+
+	path, err := writeAppManifest(servicesDir, appManifest{
+		name: name, issuer: issuer, identity: identity, image: image,
+		registries: registries, maxServices: seed.maxServices,
+		proxySuffixes: proxySuffixes, upstreams: upstreams, dnsSuffixes: dnsSuffixes,
+		rollback: seed.rollback,
+	})
+	if err != nil {
+		return err
+	}
+	okLine("App %q updated: %s", name, path)
+	return showAppDetails(servicesDir, stateDir, actionRef, name)
+}
+
+func newAppEditCmd() *cobra.Command {
+	var servicesDir, stateDir, actionRef string
+	cmd := &cobra.Command{
+		Use:     "edit <name>",
+		Short:   "Re-run the wizard to change an accepted app's config",
+		Args:    cobra.ExactArgs(1),
+		PreRunE: rootPreRun,
+		RunE: func(c *cobra.Command, args []string) error {
+			name := args[0]
+			if _, err := os.Stat(filepath.Join(servicesDir, name, "manifest.yaml")); err != nil {
+				return fmt.Errorf("app %q is not accepted yet (run 'statio app add %s')", name, name)
+			}
+			return editAppInteractive(servicesDir, stateDir, actionRef, name)
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
+	f.StringVar(&stateDir, "state-dir", "/var/lib/statio", "state directory (to resolve the target)")
+	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio@v1", "ref of the statio Action (Marketplace)")
 	return cmd
 }
 
