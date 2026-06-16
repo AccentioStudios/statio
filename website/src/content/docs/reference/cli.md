@@ -5,27 +5,37 @@ sidebar:
   order: 2
 ---
 
+`statio --help` groups the commands the same way this page does — **Setup**, **Apps & config**,
+**Operate**, **Maintenance**, and **Internal** (run by systemd & the Action, not by hand).
+
 ```sh
-statio init server          # wizard: configure the agent + mint the shared CI auth key
+# Setup — on the server, then in your repo
+statio init server          # wizard: configure the agent + mint the ONE shared CI auth key
 statio init integrations    # wizard: NPMplus + Cloudflare + public IP
 statio init repo            # wizard: statio.yaml + how to call the Action
 
+# Apps & config — on the server
 statio app add [name]       # wizard: accept an app — image repo, signer identity, domains
 statio app list             # list apps; pick one to view its config + setup steps, or edit it
 statio app edit <name>      # re-run the wizard (current values pre-filled) to change an app
 statio app rm <name>        # stop accepting an app's deploys
-
 statio env set <svc> KEY=VALUE [--protected] [--required]
 statio env set <svc> KEY --secret-stdin          # ops secret via stdin
 statio env list <svc>
 statio env rm  <svc> KEY
 
-statio deploy ...           # used by the Action (not by hand)
-statio logs <svc> [--target HOST]                # audit log (local or remote)
-statio status --target HOST                      # agent status
+# Operate — from a machine ON the tailnet (your laptop or CI), NOT the server
+statio status --target <agent-host>              # the agent's health + the apps it accepts
+statio logs <svc> [--target <agent-host>]        # deploy audit log (local file, or a remote agent)
+
+# Maintenance
 statio upgrade [--check] [--no-restart]          # self-update (verifies the checksum)
 statio doctor [--fix]                            # environment diagnostics (and safe auto-fixes)
 statio version                                   # or: statio --version
+
+# Internal — run by systemd & the GitHub Action, not by hand
+statio agent run --config <path>
+statio deploy ...
 ```
 
 The wizards (`init server`, `init integrations`, `init repo`, `app add`, `app edit`) are
@@ -33,6 +43,19 @@ interactive: run them without flags and they guide you. `app list` is interactiv
 pick an app and then view its config (with the workflow snippet and secrets) or re-run the wizard to
 edit it. In CI/scripts they accept flags and secrets via `--*-stdin`; the
 Action uses the flag form automatically. (`statio enable` is a deprecated alias of `statio app add`.)
+
+## Checking a running agent
+
+Two different checks, for two different places:
+
+- **On the server** → `sudo statio doctor`. The server's own OS is **not** a tailnet peer (the agent
+  runs in userspace via tsnet), so you can't reach the agent from the server itself — `doctor` checks
+  it locally instead (service state, config, the agent's last log line if it's down).
+- **From your laptop or CI** (a machine **on the tailnet**) → `statio status --target <agent-host>`
+  queries the agent's `/status` over the tailnet and prints its health and the apps it accepts. The
+  `<agent-host>` is the agent's MagicDNS name (e.g. `statio.your-tailnet.ts.net`) — the address
+  `init server` printed. `statio logs <svc> --target <agent-host>` fetches a service's deploy history
+  the same way.
 
 ## Self-update & diagnostics
 

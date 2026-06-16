@@ -22,22 +22,35 @@ func Execute(version string) error {
 		PersistentPostRun: func(c *cobra.Command, _ []string) { maybeNudgeUpdate(c, version) },
 	}
 	root.SetVersionTemplate("statio {{.Version}}\n")
+
+	// Group the commands in `--help` so the human-facing ones (setup → apps → operate →
+	// maintenance) are obvious and the machine-facing ones (agent, deploy) are clearly labelled
+	// as not-for-hand-use. Without groups cobra prints one flat alphabetical list.
+	root.AddGroup(
+		&cobra.Group{ID: "setup", Title: "Setup:"},
+		&cobra.Group{ID: "apps", Title: "Apps & config (on the server):"},
+		&cobra.Group{ID: "operate", Title: "Operate (from a machine on the tailnet):"},
+		&cobra.Group{ID: "maint", Title: "Maintenance:"},
+		&cobra.Group{ID: "internal", Title: "Internal (run by systemd & the GitHub Action — not by hand):"},
+	)
+	grouped := func(id string, c *cobra.Command) *cobra.Command { c.GroupID = id; return c }
+
 	root.AddCommand(
-		newAgentCmd(),
-		newDeployCmd(),
-		newStatusCmd(),
-		newEnvCmd(),
-		newLogsCmd(),
-		newAppCmd(),
-		newEnableAliasCmd(),
-		newInitCmd(version),
-		newUpgradeCmd(version),
-		newDoctorCmd(version),
-		&cobra.Command{
+		grouped("setup", newInitCmd(version)),
+		grouped("apps", newAppCmd()),
+		grouped("apps", newEnvCmd()),
+		grouped("operate", newStatusCmd()),
+		grouped("operate", newLogsCmd()),
+		grouped("maint", newUpgradeCmd(version)),
+		grouped("maint", newDoctorCmd(version)),
+		grouped("maint", &cobra.Command{
 			Use:   "version",
 			Short: "Print the statio version",
 			Run:   func(c *cobra.Command, _ []string) { c.Println("statio", version) },
-		},
+		}),
+		grouped("internal", newAgentCmd()),
+		grouped("internal", newDeployCmd()),
+		newEnableAliasCmd(), // hidden, deprecated alias of `app add`
 	)
 	return root.Execute()
 }
