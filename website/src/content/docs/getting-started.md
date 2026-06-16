@@ -22,8 +22,10 @@ account (the free plan is enough).
 
 :::tip[Check your setup anytime with `statio doctor`]
 `sudo statio doctor` tells you what's installed and configured (Docker + its login, gh + its login,
-the agent config, the state dir, the service) and flags what's missing. `sudo statio doctor --fix`
-even repairs the common issues for you. Run it whenever something feels off.
+the agent config and the secret files it references, the state dir, the service) and flags what's
+missing — it even prints the agent's last log line when the service is down, so you see *why*.
+`sudo statio doctor --fix` repairs the common issues for you (missing state dir, loose secret perms,
+a crash-looping agent). Run it whenever something feels off.
 :::
 
 ## Step 0 · Tailscale (once, on the web)

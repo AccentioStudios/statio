@@ -42,11 +42,16 @@ Action uses the flag form automatically. (`statio enable` is a deprecated alias 
   whether a newer version exists.
 - `statio doctor` checks your environment: binary version vs latest, Docker
   **and whether it's logged in to a registry**, git, gh **and whether it's logged in**, cosign (only
-  relevant in CI), the agent config, the **state dir** and the service, and GitHub reachability. On a
-  server run it with **`sudo statio doctor`** for the full picture — the config, the agent's docker
-  login and the service all need root, while the gh check is still done as the user you sudo from.
-  `statio doctor --fix` resolves what it safely can on its own (create a missing state dir, restart a
-  crash-looping agent) and tells you which remaining fixes need a `sudo` re-run.
+  relevant in CI), the agent config **and the secret files it references**, the **state dir** and the
+  service, and GitHub reachability. It runs the *same secret-file check the agent runs at boot*, so a
+  missing or world-readable secret is caught here instead of as a silent crash-loop — and when the
+  service is down it prints the agent's last log line (read as root) so you see *why*. On a server run
+  it with **`sudo statio doctor`** for the full picture — the config, the secret files, the agent's
+  docker login and the service all need root, while the gh check is still done as the user you sudo
+  from. `statio doctor --fix` resolves what it safely can on its own (create a missing state dir,
+  tighten a loose secret's perms, restart a crash-looping agent) and tells you which remaining fixes
+  need a `sudo` re-run. A *missing* secret it can't fabricate — it points you at the `init` step that
+  regenerates it.
 - The CLI also nudges you when a newer version exists. Disable it with `STATIO_NO_UPDATE_CHECK=1`.
 
 ## Server install & update

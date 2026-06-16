@@ -20,7 +20,6 @@ type Config struct {
 	ListenPort  int              `yaml:"listen_port"`
 	Tailscale   TailscaleConfig  `yaml:"tailscale"`
 	Cosign      CosignConfig     `yaml:"cosign"`
-	Registry    RegistryConfig   `yaml:"registry"`
 	NPMplus     NPMplusConfig    `yaml:"npmplus"`
 	Cloudflare  CloudflareConfig `yaml:"cloudflare"`
 	DNS         DNSConfig        `yaml:"dns"`
@@ -48,11 +47,6 @@ type CosignConfig struct {
 	TrustedRootFile string `yaml:"trusted_root_file"`
 	RequireTlog     bool   `yaml:"require_tlog"`
 	RequireSCT      bool   `yaml:"require_sct"`
-}
-
-// RegistryConfig holds the GHCR pull credentials path (for private repos).
-type RegistryConfig struct {
-	GHCRAuthFile string `yaml:"ghcr_auth_file"`
 }
 
 // NPMplusConfig is optional. When BaseURL is empty, reverse-proxy reconciliation is
@@ -187,6 +181,11 @@ func (c *Config) ValidateSecretPerms() error {
 	return nil
 }
 
+// SecretFiles returns the paths of every configured secret file. These are the same files
+// ValidateSecretPerms checks at agent startup, so `statio doctor` can reproduce a boot failure
+// (a missing or world-readable secret) before systemd ever crash-loops on it.
+func (c *Config) SecretFiles() []string { return c.secretFiles() }
+
 func (c *Config) secretFiles() []string {
 	var fs []string
 	add := func(p string) {
@@ -195,7 +194,6 @@ func (c *Config) secretFiles() []string {
 		}
 	}
 	add(c.Tailscale.OAuthFile)
-	add(c.Registry.GHCRAuthFile)
 	add(c.NPMplus.CredentialsFile)
 	add(c.Cloudflare.CredentialsFile)
 	return fs

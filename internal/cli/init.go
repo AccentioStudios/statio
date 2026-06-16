@@ -261,8 +261,6 @@ cosign:
   oidc_issuer: %s
   require_tlog: true
   require_sct: true
-registry:
-  ghcr_auth_file: /etc/statio/secrets/ghcr.json
 services_dir: /etc/statio/services
 state_dir: /var/lib/statio
 log_level: info

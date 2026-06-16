@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/accentiostudios/statio/internal/config"
+	"github.com/accentiostudios/statio/internal/fsutil"
 	"github.com/accentiostudios/statio/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -37,7 +38,7 @@ func newDoctorCmd(version string) *cobra.Command {
 			doctorTool("git", "repo auto-detect in `statio init repo` (client only)", true, &ok)
 			doctorGH()
 			doctorCosign()
-			doctorConfig(configPath, &ok)
+			doctorConfig(configPath, fix, root, &ok, &needsSudo)
 			doctorState(fix, root, &ok, &needsSudo)
 			doctorGitHub()
 
@@ -133,6 +134,13 @@ func doctorState(fix, root bool, ok, needsSudo *bool) {
 	case "":
 		info("statio-agent service: unknown state")
 	default:
+		// Surface WHY it's down. The journal needs root, which is why a hand-run
+		// `journalctl` as a normal user shows "No entries" — doctor reads it as root for you.
+		if root {
+			if cause := lastAgentLog(); cause != "" {
+				info("  ↳ last agent log: %s", cause)
+			}
+		}
 		switch {
 		case fix && root && !missing:
 			_ = exec.Command("systemctl", "daemon-reload").Run()
@@ -151,6 +159,26 @@ func doctorState(fix, root bool, ok, needsSudo *bool) {
 			*ok = false
 		}
 	}
+}
+
+// lastAgentLog returns the most recent statio-agent message from the journal (root only; the
+// system journal is unreadable to a normal user, which is why a hand-run `journalctl` shows
+// "No entries"). `-o cat` strips the syslog prefix so we get the agent's raw stderr line.
+func lastAgentLog() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	out, err := exec.Command("journalctl", "-u", "statio-agent", "--no-pager", "-n", "20", "-o", "cat").Output()
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(lines[i]); s != "" && !strings.HasPrefix(s, "--") {
+			return s
+		}
+	}
+	return ""
 }
 
 func doctorVersion(version string) {
@@ -261,7 +289,7 @@ func doctorTool(name, hint string, optional bool, ok *bool) {
 	okLine("%s%s — %s", name, ver, hint)
 }
 
-func doctorConfig(path string, ok *bool) {
+func doctorConfig(path string, fix, root bool, ok, needsSudo *bool) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsPermission(err) || isServer() {
 			info("agent config: %s present but not readable here — run `sudo statio doctor` to validate it", path)
@@ -270,12 +298,75 @@ func doctorConfig(path string, ok *bool) {
 		}
 		return
 	}
-	if _, err := config.Load(path); err != nil {
+	cfg, err := config.Load(path)
+	if err != nil {
 		failLine("config %s invalid: %v", path, err)
 		*ok = false
 		return
 	}
 	okLine("agent config: %s (valid)", path)
+	doctorSecretFiles(cfg, fix, root, ok, needsSudo)
+}
+
+// doctorSecretFiles runs the exact check the agent runs at startup (ValidateSecretPerms): every
+// secret file the config references must exist and be 0600 root. This is the gap that let a
+// crash-loop slip past doctor before — `config.Load` validated structure but not the secret files,
+// so doctor said "valid" while the agent died on a missing/insecure secret. With --fix (as root) it
+// tightens loose perms; a *missing* secret can't be fabricated, so it points at the init step that
+// regenerates it.
+func doctorSecretFiles(cfg *config.Config, fix, root bool, ok, needsSudo *bool) {
+	files := cfg.SecretFiles()
+	if len(files) == 0 {
+		return
+	}
+	allOK := true
+	for _, p := range files {
+		if _, err := os.Stat(p); err != nil {
+			if os.IsNotExist(err) {
+				failLine("secret file missing: %s — the agent crash-loops at boot (`stat %s: no such file`). %s", p, p, regenHint(p))
+			} else {
+				failLine("secret file %s: %v", p, err)
+			}
+			*ok, allOK = false, false
+			continue
+		}
+		if err := fsutil.CheckPerm(p); err != nil {
+			switch {
+			case fix && root:
+				if e := os.Chmod(p, 0o600); e == nil {
+					if e2 := os.Chown(p, 0, 0); e2 == nil && fsutil.CheckPerm(p) == nil {
+						okLine("fixed: secured %s (chmod 600, root owner)", p)
+						continue
+					}
+				}
+				failLine("secret file %s: %v (auto-fix failed — fix it by hand)", p, err)
+				*ok, allOK = false, false
+			case fix && !root:
+				failLine("secret file %s: %v — re-run `sudo statio doctor --fix` to secure it (needs root)", p, err)
+				*ok, allOK, *needsSudo = false, false, true
+			default:
+				failLine("secret file %s: %v — `sudo statio doctor --fix` can secure it", p, err)
+				*ok, allOK = false, false
+			}
+			continue
+		}
+	}
+	if allOK {
+		okLine("agent secret files present and 0600 root")
+	}
+}
+
+// regenHint maps a secret file to the init step that regenerates it (a real secret can't be
+// auto-created — only the wizard knows its contents).
+func regenHint(path string) string {
+	switch filepath.Base(path) {
+	case "oauth.json", "oauth":
+		return "Re-run `sudo statio init server` to regenerate it."
+	case "npmplus.json", "cloudflare.json":
+		return "Re-run `sudo statio init integrations` to regenerate it."
+	default:
+		return "Re-create it, or re-run the matching `statio init` step."
+	}
 }
 
 func doctorGitHub() {
