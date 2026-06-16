@@ -120,7 +120,7 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 
 				// 2. Workflow + branch (the branch is pre-filled with the detected default).
 				if err := runForm(
-					inputField("Workflow file", "The .yml in .github/workflows/ of the deploying repo. The one 'statio init repo' generates is deploy.yml.", "deploy.yml", &wf, true),
+					inputField("Workflow file", "Exact file name of the workflow that builds & signs this app, under .github/workflows/ (just the name, not the path). 'statio init repo' creates deploy.yml; if your CI file has another name, use that.", "deploy.yml", &wf, true),
 					inputField("Authorized branch", "Only deploys from this branch of the repo are accepted.", "main", &branch, true),
 				); err != nil {
 					return err
