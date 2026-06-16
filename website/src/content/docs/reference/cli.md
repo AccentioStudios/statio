@@ -40,7 +40,7 @@ Action uses the flag form automatically. (`statio enable` is a deprecated alias 
   replaces the running binary in place, and restarts the `statio-agent` service when it's active
   (so the new binary takes effect immediately). `--no-restart` skips that; `--check` only reports
   whether a newer version exists.
-- `statio doctor` checks your environment — like `flutter doctor`: binary version vs latest, Docker
+- `statio doctor` checks your environment: binary version vs latest, Docker
   **and whether it's logged in to a registry**, git, gh **and whether it's logged in**, cosign (only
   relevant in CI), the agent config, the **state dir** and the service, and GitHub reachability. On a
   server run it with **`sudo statio doctor`** for the full picture — the config, the agent's docker

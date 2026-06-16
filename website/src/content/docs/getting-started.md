@@ -21,10 +21,9 @@ installs it to `/usr/local/bin/statio`. You also need **Docker** on the server a
 account (the free plan is enough).
 
 :::tip[Check your setup anytime with `statio doctor`]
-Like `flutter doctor`, `sudo statio doctor` tells you what's installed and configured (Docker + its
-login, gh + its login, the agent config, the state dir, the service) and flags what's missing.
-`sudo statio doctor --fix` even repairs the common issues for you. Run it whenever something feels
-off.
+`sudo statio doctor` tells you what's installed and configured (Docker + its login, gh + its login,
+the agent config, the state dir, the service) and flags what's missing. `sudo statio doctor --fix`
+even repairs the common issues for you. Run it whenever something feels off.
 :::
 
 ## Step 0 · Tailscale (once, on the web)
@@ -174,7 +173,7 @@ sudo statio app add api --image ghcr.io/accentiostudios/api \
 ### A3 · Verify the agent 🖥️
 
 `init server` already enabled and started the `statio-agent` service. Check everything with one
-command — `statio doctor`, in the spirit of `flutter doctor`:
+command — `statio doctor`:
 
 ```sh
 sudo statio doctor                 # version, docker + login, agent config, state dir, the service…

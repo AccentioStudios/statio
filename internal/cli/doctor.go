@@ -16,8 +16,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newDoctorCmd is a `flutter doctor`-style environment check: it reports what is
-// installed/configured and flags the gaps, without changing anything.
+// newDoctorCmd reports what is installed/configured for statio and flags the gaps; with --fix it
+// also repairs the safe ones.
 func newDoctorCmd(version string) *cobra.Command {
 	var configPath string
 	var fix bool
