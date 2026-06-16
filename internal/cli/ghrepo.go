@@ -77,7 +77,9 @@ func ghPublicRepo(ctx context.Context, owner, repo string) (repoInfo, bool) {
 func ghCommand(ctx context.Context, args ...string) *exec.Cmd {
 	if runtime.GOOS != "windows" && os.Geteuid() == 0 {
 		if u := os.Getenv("SUDO_USER"); u != "" && u != "root" {
-			return exec.CommandContext(ctx, "sudo", append([]string{"-n", "-u", u, "gh"}, args...)...)
+			// -H sets HOME to the target user's home so gh finds ~/.config/gh/hosts.yml
+			// (without it sudo may keep HOME=/root and gh sees no login).
+			return exec.CommandContext(ctx, "sudo", append([]string{"-n", "-H", "-u", u, "gh"}, args...)...)
 		}
 	}
 	return exec.CommandContext(ctx, "gh", args...)
