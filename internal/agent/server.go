@@ -37,9 +37,24 @@ func readTailscaleAuthKey(path string) (string, error) {
 		ClientSecret string `json:"client_secret"`
 	}
 	if json.Unmarshal(raw, &j) == nil && j.ClientSecret != "" {
-		return j.ClientSecret, nil
+		return withOAuthKeyAttrs(j.ClientSecret), nil
 	}
-	return strings.TrimSpace(string(raw)), nil
+	return withOAuthKeyAttrs(strings.TrimSpace(string(raw))), nil
+}
+
+// withOAuthKeyAttrs forces a persistent, pre-authorized node when the credential is an OAuth
+// client secret (tskey-client-…). tsnet mints the agent's node auth key from that secret and
+// DEFAULTS it to ephemeral=true / preauthorized=false; an ephemeral node is reaped by the control
+// plane when it goes offline (a reboot past the grace window), which invalidates the agent's stable
+// MagicDNS FQDN — the audience every signed payload must target (invariant #17) — and silently
+// breaks deploys. tsnet's Server.Ephemeral does NOT influence this OAuth-minted key, so we set the
+// attributes on the secret string itself (parsed by tailscale's oauthkey feature). A pre-minted
+// auth key (tskey-auth-…), or a secret that already carries attributes, is returned unchanged.
+func withOAuthKeyAttrs(secret string) string {
+	if strings.HasPrefix(secret, "tskey-client-") && !strings.Contains(secret, "?") {
+		return secret + "?ephemeral=false&preauthorized=true"
+	}
+	return secret
 }
 
 // Agent owns the tsnet node and HTTP server.
@@ -71,13 +86,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read tailscale credential: %w", err)
 	}
+	// An OAuth client secret (tskey-client-…) carries no tags on its own: tsnet must be told
+	// which tags to advertise so it can exchange the secret for a real tagged auth key. Without
+	// this tsnet.Up fails with "oauth authkeys require --advertise-tags". A pre-minted auth key
+	// (tskey-auth-…) already encodes its tags, so AdvertiseTags is harmless there too.
+	tags := a.cfg.Tailscale.Tags
+	if len(tags) == 0 {
+		tags = []string{"tag:agent"}
+	}
 	a.ts = &tsnet.Server{
-		Hostname:  a.cfg.Hostname,
-		Dir:       a.cfg.Tailscale.StateDir,
-		AuthKey:   authKey,
-		Ephemeral: false, // the agent is a persistent node; MUST NOT be reaped
-		Logf:      func(string, ...any) {},
-		UserLogf:  func(format string, args ...any) { a.log.Debug(fmt.Sprintf(format, args...)) },
+		Hostname:      a.cfg.Hostname,
+		Dir:           a.cfg.Tailscale.StateDir,
+		AuthKey:       authKey,
+		AdvertiseTags: tags,
+		Ephemeral:     false, // the agent is a persistent node; MUST NOT be reaped
+		Logf:          func(string, ...any) {},
+		UserLogf:      func(format string, args ...any) { a.log.Debug(fmt.Sprintf(format, args...)) },
 	}
 	defer a.ts.Close()
 

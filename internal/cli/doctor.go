@@ -168,17 +168,48 @@ func lastAgentLog() string {
 	if runtime.GOOS != "linux" {
 		return ""
 	}
-	out, err := exec.Command("journalctl", "-u", "statio-agent", "--no-pager", "-n", "20", "-o", "cat").Output()
+	out, err := exec.Command("journalctl", "-u", "statio-agent", "--no-pager", "-n", "30", "-o", "cat").Output()
 	if err != nil {
 		return ""
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return pickAgentLogLine(string(out))
+}
+
+// pickAgentLogLine selects the agent's own error from a `journalctl -o cat` blob. systemd's
+// lifecycle lines ("Failed to start…", "statio-agent.service: …", "Stopped…") are interleaved
+// with the agent's stderr, and the *last* line is usually systemd's, not the cause. So we prefer
+// the last line the binary itself printed (it prefixes fatal errors with "statio: ", see
+// cmd/statio/main.go), and only fall back to a non-systemd line if there is none.
+func pickAgentLogLine(blob string) string {
+	lines := strings.Split(strings.TrimSpace(blob), "\n")
+	systemd := func(s string) bool {
+		if strings.HasPrefix(s, "statio-agent.service") {
+			return true
+		}
+		for _, p := range []string{
+			"Starting ", "Started ", "Stopping ", "Stopped ", "Failed to start",
+			"Scheduled restart", "Main process", "Consumed ", "Deactivated ", "--",
+		} {
+			if strings.HasPrefix(s, p) {
+				return true
+			}
+		}
+		return false
+	}
+	fallback := ""
 	for i := len(lines) - 1; i >= 0; i-- {
-		if s := strings.TrimSpace(lines[i]); s != "" && !strings.HasPrefix(s, "--") {
-			return s
+		s := strings.TrimSpace(lines[i])
+		if s == "" {
+			continue
+		}
+		if strings.HasPrefix(s, "statio:") {
+			return s // the binary's own fatal error — the real cause
+		}
+		if fallback == "" && !systemd(s) {
+			fallback = s
 		}
 	}
-	return ""
+	return fallback
 }
 
 func doctorVersion(version string) {

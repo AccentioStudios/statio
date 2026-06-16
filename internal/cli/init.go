@@ -86,8 +86,8 @@ func newInitServerCmd() *cobra.Command {
 		Use:   "server",
 		Short: "Set up the deploy agent on this server (interactive)",
 		Long: "Sets up the agent on THIS machine. It does not ask for any repo — you authorize each\n" +
-			"app later with `statio app add`. It takes one bootstrap Tailscale OAuth client and uses\n" +
-			"it to join the tailnet and to mint the shared tag:ci auth key CI uses to reach the agent.",
+			"app later with `statio app add`. It takes one bootstrap Tailscale OAuth client and uses it\n" +
+			"to join the tailnet and to mint ONE shared tag:ci key CI uses to reach the agent.",
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if issuer == "" {
@@ -178,22 +178,25 @@ func newInitServerCmd() *cobra.Command {
 				codeBlock("sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent")
 			}
 
-			// The server mints the shared tag:ci auth key CI uses to reach the agent.
-			sectionTitle("CI auth key (minted by the server)")
+			// The server mints ONE shared tag:ci key CI uses to reach the agent. It is the same for
+			// every app and every org — per-app isolation is the cosign signer, not this key — so we
+			// mint it once here, not per repo. Not persisted; rotation = re-run `init server`.
+			sectionTitle("CI auth key (one shared key, minted by the server)")
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			key, err := tailscale.New(tailnetAPI).MintCIKey(ctx, clientID, clientSecret, keyDays)
+			key, err := tailscale.New(tailnetAPI).MintCIKey(ctx, clientID, clientSecret, keyDays, "statio CI deploy key")
 			if err != nil {
 				warnLine("Could not create the auth key automatically: %v", err)
-				info("Check that the OAuth client has the 'auth_keys' scope and owns tag:ci, then retry.")
+				info("Check the OAuth client has the 'auth_keys' scope and owns tag:ci, then re-run init server.")
 			} else {
-				info("Auth key tag:ci created (reusable, ephemeral, valid for %d days).", keyDays)
-				info("Set it as a GitHub secret — run this on YOUR machine where 'gh' is logged in, NOT")
-				info("on this server (there's no repo here). The --repo flag means you needn't be inside it:")
-				codeBlock("gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body '" + key + "'")
-				info("Same key for ALL your repos — to set it once for a whole org instead:")
+				info("Auth key created (tag:ci, reusable, ephemeral, valid for %d days). ONE key for ALL your", keyDays)
+				info("repos and orgs. Set it as a GitHub secret on YOUR machine (gh logged in), NOT here.")
+				info("Set it once per org (covers every repo in the org — repeat for each org you deploy from):")
 				codeBlock("gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body '" + key + "'")
-				info("Rotate it by re-running 'statio init server'.")
+				info("Or per repo (personal accounts, or a single repo):")
+				codeBlock("gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body '" + key + "'")
+				info("It only lets CI reach the agent; what each repo may deploy is fixed by its cosign")
+				info("signer (set per app in 'statio app add'). Rotate the key by re-running 'statio init server'.")
 			}
 
 			sectionTitle("Next steps")
@@ -268,11 +271,54 @@ log_level: info
 	if err := fsutil.SecureWrite(configPath, []byte(cfg), 0o600); err != nil {
 		return err
 	}
+	return writeAgentUnit(configPath)
+}
+
+// agentUnitPath is where the systemd unit lives on a server.
+const agentUnitPath = "/etc/systemd/system/statio-agent.service"
+
+// writeAgentUnit renders the embedded systemd unit for the given config path and writes it.
+// Shared by `init server` (first install) and `statio upgrade` (so unit-level fixes — e.g. a new
+// sandbox address family — reach existing servers on upgrade, not only on a fresh init).
+func writeAgentUnit(configPath string) error {
 	unit, err := render("statio-agent.service.tmpl", map[string]string{"ConfigPath": configPath})
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("/etc/systemd/system/statio-agent.service", unit, 0o644)
+	return os.WriteFile(agentUnitPath, unit, 0o644)
+}
+
+// configPathFromUnit reads the --config path baked into the installed unit's ExecStart, so an
+// `upgrade` that re-renders the unit preserves a non-default path chosen at `init server` time (the
+// path is persisted nowhere else). Falls back to the default if the unit is absent or unparsable.
+func configPathFromUnit() string {
+	data, err := os.ReadFile(agentUnitPath)
+	if err != nil {
+		return defaultConfigPath
+	}
+	return parseConfigPathFromUnit(string(data))
+}
+
+const defaultConfigPath = "/etc/statio/config.yaml"
+
+// parseConfigPathFromUnit extracts the `--config <path>` from a unit file's ExecStart line,
+// defaulting when absent/unparsable. Split out from configPathFromUnit so it can be unit-tested.
+func parseConfigPathFromUnit(unit string) string {
+	for _, line := range strings.Split(unit, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "ExecStart=") {
+			continue
+		}
+		fields := strings.Fields(line)
+		for i, f := range fields {
+			if f == "--config" && i+1 < len(fields) {
+				return fields[i+1]
+			}
+			if p, ok := strings.CutPrefix(f, "--config="); ok {
+				return p
+			}
+		}
+	}
+	return defaultConfigPath
 }
 
 // ======================== init integrations =========================
@@ -411,14 +457,14 @@ func newInitRepoCmd() *cobra.Command {
 			//    detected above. Local git read, so it works for private repos too.
 			if repoOK {
 				ident := buildIdentity(owner, repo, workflow, branch)
-				sectionTitle("Signing identity — paste this ON THE SERVER 🖥️")
+				sectionTitle("Signing identity — accept this app ON THE SERVER 🖥️")
 				info("Detected your repo: %s/%s  (branch %s, workflow %s)", owner, repo, branch, workflow)
 				info("Cosign identity: %s", ident)
-				info("In the 'statio init server' wizard, under 'GitHub repository' enter: %s/%s", owner, repo)
-				info("(or in non-interactive mode:)")
-				codeBlock("statio init server --hostname <name> --repo " + owner + "/" + repo + " --branch " + branch + " --ts-oauth-secret-stdin")
+				info("On the server, run 'statio app add' and enter this repo when asked — it derives the")
+				info("identity above for you. Non-interactive:")
+				codeBlock("sudo statio app add " + service + " --repo " + owner + "/" + repo + " --workflow " + workflow + " --branch " + branch + " --image " + image)
 			} else {
-				info("Could not detect the repo from git (is there an 'origin' remote?). On the server, enter your owner/repo by hand.")
+				info("Could not detect the repo from git (is there an 'origin' remote?). On the server, run 'statio app add' and enter your owner/repo by hand.")
 			}
 
 			// 3. Workflow: never modify an existing one. Detect + adapt.

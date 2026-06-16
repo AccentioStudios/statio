@@ -145,9 +145,14 @@ func (c *Client) MintAuthKey(ctx context.Context, token string, o AuthKeyOpts) (
 	return out.Key, nil
 }
 
-// MintCIKey is the convenience used by `statio init server`: a reusable, ephemeral,
-// pre-authorized tag:ci auth key, valid for the given number of days.
-func (c *Client) MintCIKey(ctx context.Context, clientID, clientSecret string, days int) (string, error) {
+// MintCIKey mints a reusable, ephemeral, pre-authorized tag:ci auth key valid for the given number
+// of days. `statio init server` calls it ONCE to create the single shared key CI uses to reach the
+// agent (the same key for every app and org; per-app isolation is the cosign signer, not this key).
+// `description` labels the key in the Tailscale admin; an empty value falls back to a generic label.
+func (c *Client) MintCIKey(ctx context.Context, clientID, clientSecret string, days int, description string) (string, error) {
+	if description == "" {
+		description = "statio CI deploy key"
+	}
 	tok, err := c.Token(ctx, clientID, clientSecret)
 	if err != nil {
 		return "", err
@@ -158,6 +163,6 @@ func (c *Client) MintCIKey(ctx context.Context, clientID, clientSecret string, d
 		Ephemeral:     true,
 		Preauthorized: true,
 		ExpirySeconds: days * 24 * 3600,
-		Description:   "statio CI deploy key",
+		Description:   description,
 	})
 }

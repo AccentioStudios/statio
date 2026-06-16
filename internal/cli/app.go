@@ -222,12 +222,10 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 				info("(Couldn't read the agent's address yet — it appears once the agent finishes joining")
 				info(" the tailnet. Get it with 'statio status' and replace the target placeholder above.)")
 			}
-			sectionTitle("GitHub secrets 💻 — on YOUR machine (gh logged in), not this server")
-			info("Use --repo so you needn't be inside the repo (or drop it and run from within it):")
-			codeBlock(
-				"gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body '<the key statio init server printed>'",
-				"gh secret set DATABASE_URL      --repo <owner>/<repo> --body '<value for each env in your statio.yaml>'",
-			)
+
+			// STATIO_TS_AUTHKEY is the single shared key `statio init server` minted; we don't
+			// re-mint per app. Show the repo filled in so the command is copy-paste ready.
+			printAuthKeySecret(repoFromIdentity(identity), "")
 			return nil
 		},
 	}
@@ -477,11 +475,8 @@ func showAppDetails(servicesDir, stateDir, actionRef, name string) error {
 	target := readAudience(stateDir)
 	sectionTitle("In your repo 💻 — the workflow step")
 	printSnippet(targetOrPlaceholder(target), name, seed.image, actionRef)
-	sectionTitle("GitHub secrets 💻 — on YOUR machine (gh logged in), not this server")
-	codeBlock(
-		"gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body '<the key statio init server printed>'",
-		"gh secret set DATABASE_URL      --repo <owner>/<repo> --body '<value for each env in your statio.yaml>'",
-	)
+	// STATIO_TS_AUTHKEY is the shared key from `init server` (not stored here); show the repo filled.
+	printAuthKeySecret(repoFromIdentity(seed.identity), "")
 	return nil
 }
 
@@ -599,6 +594,36 @@ func newAppEditCmd() *cobra.Command {
 	f.StringVar(&stateDir, "state-dir", "/var/lib/statio", "state directory (to resolve the target)")
 	f.StringVar(&actionRef, "action-ref", "accentiostudios/statio@v1", "ref of the statio Action (Marketplace)")
 	return cmd
+}
+
+// repoFromIdentity returns the "owner/repo" carried by a cosign signer identity, or "".
+func repoFromIdentity(identity string) string {
+	if owner, repo, _, _, ok := parseSignerIdentity(identity); ok {
+		return owner + "/" + repo
+	}
+	return ""
+}
+
+// printAuthKeySecret prints the `gh secret set STATIO_TS_AUTHKEY` commands for an app. There is ONE
+// shared key (minted once by `statio init server`); per-app isolation is the cosign signer, not this
+// key. So we show both ways to store the same key — an org secret (set once, covers every repo in the
+// org, including multiple orgs) and a per-repo secret (personal accounts / a single repo) — plus the
+// app's env secret. `repoArg` is the app's repo (filled from its signer identity); `keyArg` is the
+// key value when known, else a pointer back to `init server` (the key is never persisted).
+func printAuthKeySecret(repoArg, keyArg string) {
+	if repoArg == "" {
+		repoArg = "<owner>/<repo>"
+	}
+	if keyArg == "" {
+		keyArg = "<the key statio init server printed>"
+	}
+	sectionTitle("GitHub secrets 💻 — on YOUR machine (gh logged in), not this server")
+	info("STATIO_TS_AUTHKEY is ONE shared key from `statio init server`. Set it once per org, or per repo:")
+	codeBlock(
+		"gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body '"+keyArg+"'",
+		"gh secret set STATIO_TS_AUTHKEY --repo "+repoArg+" --body '"+keyArg+"'",
+		"gh secret set DATABASE_URL      --repo "+repoArg+" --body '<value for each env in your statio.yaml>'",
+	)
 }
 
 func readAudience(stateDir string) string {

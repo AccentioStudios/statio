@@ -26,6 +26,9 @@ func TestMintCIKey(t *testing.T) {
 			if !strings.Contains(string(body), `"tag:ci"`) || !strings.Contains(string(body), `"reusable":true`) {
 				t.Errorf("mint body missing tag/reusable: %s", body)
 			}
+			if !strings.Contains(string(body), `statio CI deploy key`) {
+				t.Errorf("mint body missing description: %s", body)
+			}
 			w.Write([]byte(`{"id":"k1","key":"tskey-auth-abc123"}`))
 		default:
 			http.NotFound(w, r)
@@ -33,7 +36,7 @@ func TestMintCIKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	key, err := New(srv.URL).MintCIKey(context.Background(), "cid", "csecret", 90)
+	key, err := New(srv.URL).MintCIKey(context.Background(), "cid", "csecret", 90, "statio CI deploy key")
 	if err != nil {
 		t.Fatalf("MintCIKey: %v", err)
 	}

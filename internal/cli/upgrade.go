@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -81,9 +82,37 @@ func newUpgradeCmd(current string) *cobra.Command {
 			}
 			okLine("statio updated to %s", tag)
 
-			// On a server the agent runs as systemd; restart it so it loads the new
-			// binary. We only touch it when the unit is actually active — on a dev
-			// machine (CLI-only) there's nothing to restart.
+			// On a server (root + systemd) refresh the systemd unit too, then restart. A binary
+			// swap alone won't pick up unit-level fixes (e.g. a new sandbox address family), so
+			// without this an existing server stays broken until a fresh `init server`. We restart
+			// unconditionally here (not gated on `agentUnitActive`) because a crash-looping unit
+			// reports `activating`/`failed`, which that gate would skip — exactly the unit we must
+			// restart to recover.
+			root := runtime.GOOS != "windows" && os.Geteuid() == 0
+			if isServer() && root && systemctlAvailable() {
+				// Preserve the config path the operator chose at init (read back from the unit);
+				// hardcoding it would clobber a non-default --config and crash-loop the agent.
+				if err := writeAgentUnit(configPathFromUnit()); err != nil {
+					warnLine("could not refresh the systemd unit: %v", err)
+				} else {
+					okLine("refreshed the statio-agent systemd unit")
+				}
+				if noRestart {
+					warnLine("restart the agent to use the new binary + unit:")
+					codeBlock("sudo systemctl daemon-reload && sudo systemctl restart statio-agent")
+					return nil
+				}
+				_ = exec.Command("systemctl", "daemon-reload").Run()
+				if err := exec.Command("systemctl", "restart", agentUnit).Run(); err != nil {
+					warnLine("could not restart the agent automatically: %v", err)
+					codeBlock("sudo systemctl daemon-reload && sudo systemctl restart statio-agent")
+				} else {
+					okLine("agent restarted (%s) with the new binary + unit", agentUnit)
+				}
+				return nil
+			}
+
+			// Non-server / non-root path: best-effort restart only when the unit is active.
 			switch {
 			case noRestart:
 				warnLine("if the agent runs as a service, restart it to use the new binary:")

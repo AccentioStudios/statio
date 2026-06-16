@@ -93,24 +93,31 @@ sudo statio init server
 
 It asks only for the server name and the **Tailscale OAuth client** (the id + secret from Step 0)
 — **no repo here**. It writes the agent config, **enables and starts the `statio-agent` service**,
-and **mints the shared `tag:ci` auth key** CI uses to reach it, printing a ready-to-paste command:
+and **mints ONE shared `tag:ci` auth key** CI uses to reach the agent, printing both ways to store it:
 
 ```
   Server name        › statio
   OAuth client ID    › k123ABC...
   OAuth client secret › ••••••••••••••••
 
-  ✓ gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body 'tskey-auth-…'
+  ✓ gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body 'tskey-auth-…'
+  ✓ gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo>          --body 'tskey-auth-…'
 ```
 
-Run that `gh secret set` **on your machine, not on the server** — there's no repo on the server, so
-`gh` there fails with *"not a git repository"*. The `--repo owner/repo` flag lets you run it from
-anywhere; or `cd` into the repo and drop the flag. It's **one secret, reused by every repo** that
-deploys here, so you can also set it once for the whole org:
+Run `gh secret set` **on your machine, not on the server** — there's no repo on the server, so `gh`
+there fails with *"not a git repository"*. There is **one key for everything**:
 
-```sh
-gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body 'tskey-auth-…'
-```
+- Repos in a **GitHub organization** → set it once as an **org secret** (`--org … --visibility all`);
+  every repo in the org inherits it. Deploying from **several orgs** to this one server? Run that same
+  command in each org — **the same key** works for all of them.
+- Repos in a **personal account** → GitHub has no account-wide secret, so set the same key per repo
+  (`--repo owner/repo`).
+
+:::note[The key only grants tailnet *reach* — cosign decides what deploys]
+Sharing one key is safe: it just lets CI connect to the agent. **What** a repo may deploy is fixed by
+that app's **cosign signer** (`statio app add`, below) — a repo can only deploy the app whose signing
+identity matches it, no matter which key it holds. That's why one key serves every repo and org.
+:::
 
 (Rotate it later by re-running `statio init server`.)
 
