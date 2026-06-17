@@ -33,4 +33,6 @@ jobs:
           image: {{.Image}}
           # empty on push → the action builds & pushes; set on dispatch to redeploy/rollback.
           digest: ${{ inputs.digest }}
-          ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}
+          # CI's own tag:ci OAuth client (created in the Tailscale console).
+          ts-oauth-client-id: ${{ secrets.STATIO_TS_OAUTH_CLIENT_ID }}
+          ts-oauth-secret: ${{ secrets.STATIO_TS_OAUTH_SECRET }}

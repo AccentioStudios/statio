@@ -25,8 +25,8 @@ a full Tailscale node (userspace WireGuard). On the server you install **no `tai
 agent talks to NPMplus over localhost and pulls images over normal HTTPS).
 
 **What Tailscale is for — and isn't.** Tailscale carries **only the deploy signal**: CI (an
-ephemeral `tag:ci` node) reaches the agent privately to send the signed payload. It replaces SSH and
-means the agent has no public inbound port. statio does **not** serve your app over Tailscale — there
+ephemeral `tag:ci` node, joined with CI's own `tag:ci` OAuth client) reaches the agent privately to
+send the signed payload. It replaces SSH and means the agent has no public inbound port. statio does **not** serve your app over Tailscale — there
 is no `tailscale serve`. Your app's **public traffic** takes a separate, ordinary path: it hits a
 reverse proxy (NPMplus) on the server's public `80/443`, which forwards to the container on loopback
 (`127.0.0.1`). So three paths exist, only one of them being Tailscale:
@@ -157,9 +157,10 @@ Invariants that **don't get undone** (several are test-enforced):
    position.
 2. **`ListenFunnel` forbidden + lint.** `go test` fails if `.ListenFunnel(` or `net.Listen(` appears,
    plus a `100.64.0.0/10` self-check at startup.
-3. **Server-provisioned CI key.** The agent holds one Tailscale OAuth client (`auth_keys`+`devices`)
-   to join the tailnet and to **mint** the shared, ephemeral `tag:ci` auth key CI uses — the operator
-   never hand-builds CI credentials.
+3. **Separate tailnet clients for agent and CI.** The agent joins the tailnet with its own
+   `tag:agent` OAuth client (`auth_keys`+`devices`); CI joins with a **separate** `tag:ci` OAuth
+   client (`auth_keys`). CI's client can't register a `tag:agent` node, so **CI can never act as the
+   agent**.
 4. **Exact cosign identity, per app.** Each accepted app pins its own signer (manifest); a regexp is
    only allowed if anchored and without a wildcard over owner/repo; fail-closed if no identity matches.
 5. **Post-pull digest re-check + repo-equality** (the event picks *which* signed digest of an allowed
@@ -208,20 +209,23 @@ attacker can sign code + config **for that one app**. Mitigations and response:
   server (the ops base is the break-glass path).
 - **Rotate an app's signer:** re-run `statio app add <app>` with the new repo (or edit its manifest
   `signer`). Manifests are read per deploy, so it takes effect on the next deploy — no restart.
-- **Rotate the CI key:** re-run `statio init server` to mint a fresh `tag:ci` key, update the
-  `STATIO_TS_AUTHKEY` secret.
+- **Revoke CI's tailnet access:** the `tag:ci` OAuth client **secret doesn't expire** (only the
+  short-lived access token it generates does, auto-refreshed), so there is nothing to rotate on a
+  schedule. To cut off CI, delete or regenerate the `tag:ci` OAuth client in the Tailscale console and
+  update the `STATIO_TS_OAUTH_CLIENT_ID` / `STATIO_TS_OAUTH_SECRET` secrets.
 - **Bounded by design:** even with a signed payload, DNS points only at your pinned IP, the upstream
   and domains are allowlisted, and the generated compose can't escalate to host root. The blast radius
   is "that app's own repo deployed something".
 
-### 6.6 The CI key and the bootstrap token (tradeoff)
+### 6.6 The CI client and the agent client (separation)
 
-The shared `tag:ci` auth key is what lets CI *reach* the agent; it grants no deploy power on its own
-(the cosign signer is the real gate), so one key safely serves every repo. To mint it, the agent
-stores one Tailscale OAuth client with `auth_keys` scope — a broader credential than a join-only key:
-if the agent (already root-equivalent via `docker.sock`) is compromised, that token could add nodes
-to your tailnet. Accepted in exchange for never hand-provisioning CI credentials; the alternative
-(a separate join-only client) is left as future work.
+CI joins the tailnet with its **own** `tag:ci` OAuth client (`auth_keys` scope), kept separate from
+the agent's `tag:agent` client. CI's client only lets it *reach* the agent; it grants no deploy power
+on its own (the cosign signer is the real gate), so the **same CI client safely serves every repo**.
+Because CI's client is scoped to `tag:ci`, it **can't register a `tag:agent` node** — CI can never
+impersonate the agent, even if a workflow is compromised. The OAuth client **secret doesn't expire**
+(only the short-lived access token it mints does, auto-refreshed), so there is nothing to rotate on a
+schedule; to revoke CI access, delete or regenerate the `tag:ci` client in the Tailscale console.
 
 ### 6.4 Secrets at-rest (the honest claim)
 

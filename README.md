@@ -82,11 +82,11 @@ Setup touches **two places**. Each command is tagged:
 
 ### Step 0 · Tailscale (once, on the web)
 
-Two steps, in order — the OAuth client can only own tags that already exist.
+Two steps, in order — an OAuth client can only own tags that already exist.
 
-**1. Define the tags.** Under *Access controls*, paste this ACL. Each tag **owns itself** so the
-OAuth client (which carries the tags) is allowed to register the agent as `tag:agent` and mint
-`tag:ci` keys — without self-ownership Tailscale rejects both with *"tags … not permitted"*:
+**1. Define the tags.** Under *Access controls*, paste this ACL. Each tag **owns itself** so an
+OAuth client (which carries the tags) is allowed to register the agent as `tag:agent` and let CI
+join as `tag:ci` — without self-ownership Tailscale rejects both with *"tags … not permitted"*:
 
 ```json
 {
@@ -99,24 +99,31 @@ OAuth client (which carries the tags) is allowed to register the agent as `tag:a
 }
 ```
 
-**2. Create one OAuth client** at *Settings → OAuth clients → Generate* (newer consoles: *Trust
-credentials → New credential*). Pick **Custom scopes** and enable, both **Write**: `auth_keys`
-(**Keys → Auth Keys**) and `devices:core` (**Devices → Core**). Enabling *Devices → Core* makes
-Tailscale ask for **tags** — pick `tag:agent` and `tag:ci`. Copy its **client id** + **secret** for
-`init server`. The server uses it to join the tailnet *and* to mint the `tag:ci` key CI needs — you
-never create that key by hand. ([Full step-by-step with the exact UI](https://statio.accentio.dev/getting-started/#step-0--tailscale-once-on-the-web).)
+**2. Create two OAuth clients** at *Settings → OAuth clients → Generate* (newer consoles: *Trust
+credentials → New credential*), each with **Custom scopes**:
+
+- **The agent's client** (`tag:agent`) — enable `auth_keys` (**Keys → Auth Keys**) and `devices:core`
+  (**Devices → Core**), both **Write**; pick tag `tag:agent`. Copy its **id** + **secret** for
+  `init server`.
+- **CI's client** (`tag:ci`) — enable `auth_keys` (**Keys → Auth Keys → Write**); pick tag `tag:ci`.
+  Copy its **id** + **secret** as the two `STATIO_TS_OAUTH_*` GitHub secrets (same pair for every
+  repo).
+
+Keeping CI on its own `tag:ci` client means CI can never act as the agent.
+([Full step-by-step with the exact UI](https://statio.accentio.dev/getting-started/#step-0--tailscale-once-on-the-web).)
 
 ### On your server 🖥️
 
 ```sh
-sudo statio init server     # configure + start the agent, mint the shared CI auth key (paste the OAuth client)
+sudo statio init server     # configure + start the agent (paste the agent's tag:agent OAuth client)
 sudo statio app add api     # accept an app: image repo + its GitHub signer + domains
 ```
 
-`init server` enables and starts the `statio-agent` service for you, then prints a
-`gh secret set STATIO_TS_AUTHKEY …` command (one secret for all repos). `app add` accepts each app —
-apps can come from different repos/orgs, each pinning its own signer. Both are interactive wizards —
-run them without flags.
+`init server` enables and starts the `statio-agent` service for you, joining the tailnet with the
+agent's `tag:agent` OAuth client — it no longer mints or prints any key. CI joins with its own
+`tag:ci` OAuth client (the two `STATIO_TS_OAUTH_*` secrets, one pair for all repos). `app add`
+accepts each app — apps can come from different repos/orgs, each pinning its own signer. Both are
+interactive wizards — run them without flags.
 
 ### On your machine 💻
 
@@ -125,7 +132,8 @@ statio init repo            # creates statio.yaml + prints the workflow step to 
 git push                    # CI builds, signs, and deploys
 ```
 
-Set the secrets the workflow needs (`gh secret set STATIO_TS_AUTHKEY …` and your app's env), then push.
+Set the secrets the workflow needs (`gh secret set STATIO_TS_OAUTH_CLIENT_ID …`,
+`gh secret set STATIO_TS_OAUTH_SECRET …`, and your app's env), then push.
 
 > The full step-by-step — including the workflow snippet, domains, environment variables and
 > rollback — is in the [Getting started guide](https://statio.accentio.dev/getting-started/).

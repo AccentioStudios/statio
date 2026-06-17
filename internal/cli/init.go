@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"embed"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/accentiostudios/statio/internal/fsutil"
-	"github.com/accentiostudios/statio/internal/tailscale"
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 )
@@ -92,15 +90,14 @@ func confirm(title string) (bool, error) {
 // ============================ init server ============================
 
 func newInitServerCmd() *cobra.Command {
-	var hostname, issuer, configPath, oauthSecretFile, clientID, tailnetAPI string
+	var hostname, issuer, configPath, oauthSecretFile, clientID string
 	var oauthStdin bool
-	var keyDays int
 	cmd := &cobra.Command{
 		Use:   "server",
 		Short: "Set up the deploy agent on this server (interactive)",
 		Long: "Sets up the agent on THIS machine. It does not ask for any repo — you authorize each\n" +
-			"app later with `statio app add`. It takes one bootstrap Tailscale OAuth client and uses it\n" +
-			"to join the tailnet and to mint ONE shared tag:ci key CI uses to reach the agent.",
+			"app later with `statio app add`. It takes the agent's Tailscale OAuth client (tag:agent) and\n" +
+			"joins the tailnet; CI joins separately with its own tag:ci OAuth client.",
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if issuer == "" {
@@ -121,23 +118,30 @@ func newInitServerCmd() *cobra.Command {
 					return err
 				}
 				sectionTitle("First, set up Tailscale (once, on the web)")
-				info("CI reaches this server over Tailscale instead of SSH. Do two steps in the admin")
-				info("console, in order — the OAuth client can only own tags that already exist:")
+				info("CI reaches this server over Tailscale instead of SSH. Do three steps in the admin")
+				info("console, in order — an OAuth client can only use tags that already exist:")
 				info("")
-				info("1. Access controls — define the tags. Each tag must OWN ITSELF so the OAuth client")
-				info("   can register the agent and mint keys (else: 'tags ... not permitted'). Paste & save:")
+				info("1. Access controls — define the tags. Each tag must OWN ITSELF so its OAuth client")
+				info("   can register/mint with it (else: 'tags ... not permitted'). Paste & save:")
 				codeBlock(`{"tagOwners":{"tag:agent":["autogroup:admin","tag:agent"],"tag:ci":["autogroup:admin","tag:ci"]},"acls":[{"action":"accept","src":["tag:ci"],"dst":["tag:agent:443"]}]}`)
 				info("")
-				info("2. Settings -> OAuth clients -> Generate (newer consoles: Trust credentials -> New).")
-				info("   Choose 'Custom scopes' and enable, both Write:")
-				info("     - auth_keys     ->  Keys -> Auth Keys    (lets THIS server mint the CI key)")
-				info("     - devices:core  ->  Devices -> Core      (lets the agent register as a node)")
-				info("   Enabling Devices -> Core makes Tailscale ask for tags: pick tag:agent and tag:ci.")
-				info("   Then copy the client id + secret. https://login.tailscale.com/admin/settings/oauth")
+				info("2. The AGENT's OAuth client (this server joins with it). Settings -> OAuth clients ->")
+				info("   Generate. 'Custom scopes', both Write: auth_keys (Keys -> Auth Keys) + devices:core")
+				info("   (Devices -> Core). When asked for tags, pick tag:agent. Copy its id + secret —")
+				info("   you paste them below. https://login.tailscale.com/admin/settings/oauth")
 				info("")
+				info("3. CI's OWN OAuth client (GitHub Actions joins with it — kept separate so CI can never")
+				info("   act as the agent). Generate a SECOND client, scope auth_keys (Write), tag tag:ci.")
+				info("   Set its id + secret as GitHub secrets (on YOUR machine, org-wide or per repo):")
+				codeBlock(
+					"gh secret set STATIO_TS_OAUTH_CLIENT_ID --org <your-org> --visibility all --body '<ci client id>'",
+					"gh secret set STATIO_TS_OAUTH_SECRET    --org <your-org> --visibility all --body '<ci client secret>'",
+				)
+				info("")
+				info("Paste the AGENT's OAuth client (step 2 — NOT the CI one):")
 				if err := runForm(
-					inputField("OAuth client ID", "Client identifier (not secret).", "k123ABC...", &clientID, true),
-					passwordField("OAuth client secret", "Starts with tskey-client-…; stored 0600 root, never printed", &clientSecret),
+					inputField("Agent OAuth client ID", "The agent client's id (not secret).", "k123ABC...", &clientID, true),
+					passwordField("Agent OAuth client secret", "Starts with tskey-client-…; stored 0600 root, never printed", &clientSecret),
 				); err != nil {
 					return err
 				}
@@ -145,7 +149,7 @@ func newInitServerCmd() *cobra.Command {
 				sectionTitle("Summary")
 				info("hostname: %s", hostname)
 				info("config:   %s", configPath)
-				ok, err := confirm("Write the config + systemd unit and create the CI auth key?")
+				ok, err := confirm("Write the agent config + systemd unit?")
 				if err != nil {
 					return err
 				}
@@ -191,26 +195,14 @@ func newInitServerCmd() *cobra.Command {
 				codeBlock("sudo systemctl daemon-reload && sudo systemctl enable --now statio-agent")
 			}
 
-			// The server mints ONE shared tag:ci key CI uses to reach the agent. It is the same for
-			// every app and every org — per-app isolation is the cosign signer, not this key — so we
-			// mint it once here, not per repo. Not persisted; rotation = re-run `init server`.
-			sectionTitle("CI auth key (one shared key, minted by the server)")
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			key, err := tailscale.New(tailnetAPI).MintCIKey(ctx, clientID, clientSecret, keyDays, "statio CI deploy key")
-			if err != nil {
-				warnLine("Could not create the auth key automatically: %v", err)
-				info("Check the OAuth client has the 'auth_keys' scope and owns tag:ci, then re-run init server.")
-			} else {
-				info("Auth key created (tag:ci, reusable, ephemeral, valid for %d days). ONE key for ALL your", keyDays)
-				info("repos and orgs. Set it as a GitHub secret on YOUR machine (gh logged in), NOT here.")
-				info("Set it once per org (covers every repo in the org — repeat for each org you deploy from):")
-				codeBlock("gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body '" + key + "'")
-				info("Or per repo (personal accounts, or a single repo):")
-				codeBlock("gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo> --body '" + key + "'")
-				info("It only lets CI reach the agent; what each repo may deploy is fixed by its cosign")
-				info("signer (set per app in 'statio app add'). Rotate the key by re-running 'statio init server'.")
-			}
+			// CI does NOT use a key minted here — it joins with its OWN tag:ci OAuth client (step 3
+			// above), set as the STATIO_TS_OAUTH_CLIENT_ID + STATIO_TS_OAUTH_SECRET GitHub secrets.
+			// Keeping CI on a separate client means CI can never act as the agent; what each repo may
+			// deploy is fixed by its cosign signer (set per app in `statio app add`).
+			sectionTitle("CI credential")
+			info("CI uses the SEPARATE tag:ci OAuth client from step 3 — set those two GitHub secrets")
+			info("(STATIO_TS_OAUTH_CLIENT_ID + STATIO_TS_OAUTH_SECRET) if you haven't. The agent never")
+			info("hands CI a key; the OAuth client secret doesn't expire, so there's nothing to rotate.")
 
 			sectionTitle("Next steps")
 			codeBlock(
@@ -227,8 +219,6 @@ func newInitServerCmd() *cobra.Command {
 	f.StringVar(&oauthSecretFile, "ts-oauth-secret-file", "", "read the OAuth client secret from a file (non-interactive)")
 	f.StringVar(&issuer, "issuer", "", "cosign OIDC issuer")
 	f.StringVar(&configPath, "config", "/etc/statio/config.yaml", "config output path")
-	f.IntVar(&keyDays, "ci-key-days", 90, "validity (days) of the minted tag:ci auth key")
-	f.StringVar(&tailnetAPI, "tailscale-api", "", "Tailscale API base (for testing; defaults to public)")
 	return cmd
 }
 
@@ -523,10 +513,12 @@ func newInitRepoCmd() *cobra.Command {
 			// 4. Secrets — run from your machine, towards GitHub.
 			sectionTitle("Set up these GitHub secrets (from your machine 💻)")
 			codeBlock(
-				"gh secret set STATIO_TS_AUTHKEY --body '<the tag:ci auth key printed by statio init server>'",
-				"gh secret set DATABASE_URL      --body '<the value of each env your statio.yaml requires>'",
+				"gh secret set STATIO_TS_OAUTH_CLIENT_ID --body '<CI tag:ci OAuth client id>'",
+				"gh secret set STATIO_TS_OAUTH_SECRET    --body '<CI tag:ci OAuth client secret>'",
+				"gh secret set DATABASE_URL              --body '<the value of each env your statio.yaml requires>'",
 			)
-			info("STATIO_TS_AUTHKEY is the same for all your repos; it's minted by 'statio init server'.")
+			info("The two STATIO_TS_OAUTH_* secrets are CI's own tag:ci OAuth client (created in the")
+			info("Tailscale console); the same pair works for every repo — set them org-wide if you like.")
 			return nil
 		},
 	}

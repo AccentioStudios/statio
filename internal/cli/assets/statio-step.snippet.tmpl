@@ -14,7 +14,8 @@
     image:   {{.Image}}           # the action builds + pushes here; the agent runs it
     env: |                        # one KEY=${{ secrets.KEY }} per env your statio.yaml needs
       DATABASE_URL=${{ secrets.DATABASE_URL }}
-    ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}   # the auth key statio init server created
+    ts-oauth-client-id: ${{ secrets.STATIO_TS_OAUTH_CLIENT_ID }}   # CI's tag:ci OAuth client
+    ts-oauth-secret: ${{ secrets.STATIO_TS_OAUTH_SECRET }}
 
 # Already build the image in your own step? Pass its digest and the action skips building
 # (it still signs + deploys):  digest: ${{ steps.build.outputs.digest }}

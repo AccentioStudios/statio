@@ -34,7 +34,7 @@ Tailscale is the **private channel CI uses to reach the agent** — it replaces 
 never opens a public deploy port. It is **not** how your app is served (that's your reverse proxy on
 `80/443`).
 
-Do these two steps in order — the OAuth client can only own tags that already exist, so the tags
+Do these steps in order — an OAuth client can only own tags that already exist, so the tags
 come first.
 
 ### 1. Define the tags (Access Controls)
@@ -61,25 +61,36 @@ the tags the client carries*. Without self-ownership, `init server` fails with
 stays so you can still assign the tags by hand.
 :::
 
-### 2. Create the OAuth client (with those tags)
+### 2. Create the two OAuth clients (with those tags)
 
-Go to **Settings → [OAuth clients](https://login.tailscale.com/admin/settings/oauth) → Generate
-OAuth client** (newer consoles group this under **Trust credentials → New credential**). Pick
-**Custom scopes** and enable exactly these two, both **Write**:
+You create **two** OAuth clients in **Settings →
+[OAuth clients](https://login.tailscale.com/admin/settings/oauth) → Generate OAuth client** (newer
+consoles group this under **Trust credentials → New credential**). One is for the agent (this
+server), the other is CI's own. Keeping them separate means **CI can never act as the agent**: CI's
+client can't mint `tag:agent` keys, so a compromised workflow can't register a rogue server.
+
+**The agent's client** — pick **Custom scopes** and enable these two, both **Write**:
 
 | Tailscale scope | Where to find it in the UI | Why |
 |---|---|---|
-| `auth_keys`    | **Keys → Auth Keys → Write** | lets the server mint the shared `tag:ci` key for CI |
+| `auth_keys`    | **Keys → Auth Keys → Write** | lets the agent join the tailnet |
 | `devices:core` | **Devices → Core → Write**   | lets the agent register itself as a node and carry its tag |
 
-Enabling **Devices → Core** makes Tailscale require you to pick **tags** — choose `tag:agent` and
-`tag:ci` (a credential can only mint keys for tags it owns, and the agent joins as `tag:agent`).
+Enabling **Devices → Core** makes Tailscale require you to pick **tags** — choose `tag:agent` (a
+credential can only register a node for a tag it owns, and the agent joins as `tag:agent`).
+Generate it and copy the **client id** + **secret** — you paste them into `statio init server` next.
 
-Generate it, and copy the **client id** and **secret** — you paste them into `statio init server`
-next. The server uses this one client both to join the tailnet *and* to mint the `tag:ci` key CI
-needs, so you never create that key by hand.
+**CI's client** — pick **Custom scopes** and enable just one, **Write**:
 
-This is the only manual Tailscale step.
+| Tailscale scope | Where to find it in the UI | Why |
+|---|---|---|
+| `auth_keys` | **Keys → Auth Keys → Write** | lets GitHub Actions join the tailnet as an ephemeral `tag:ci` node |
+
+Tailscale asks for **tags** here too — choose `tag:ci`. Copy this client's **id** + **secret**; you
+store them as the two `STATIO_TS_OAUTH_*` GitHub secrets in **Part B**. The **same pair works for
+every repo** — set it once org-wide and every repo inherits it.
+
+These are the only manual Tailscale steps.
 
 ## Part A — On your server 🖥️
 
@@ -91,35 +102,29 @@ Two steps: `init server` brings up the agent, and `app add` accepts each app you
 sudo statio init server
 ```
 
-It asks only for the server name and the **Tailscale OAuth client** (the id + secret from Step 0)
-— **no repo here**. It writes the agent config, **enables and starts the `statio-agent` service**,
-and **mints ONE shared `tag:ci` auth key** CI uses to reach the agent, printing both ways to store it:
+It asks only for the server name and the **agent's Tailscale OAuth client** (the `tag:agent` id +
+secret from Step 0) — **no repo here**. It writes the agent config and **enables and starts the
+`statio-agent` service**, which joins the tailnet with that client. It **no longer mints or prints
+any key**:
 
 ```
-  Server name        › statio
-  OAuth client ID    › k123ABC...
+  Server name         › statio
+  OAuth client ID     › k123ABC...
   OAuth client secret › ••••••••••••••••
 
-  ✓ gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body 'tskey-auth-…'
-  ✓ gh secret set STATIO_TS_AUTHKEY --repo <owner>/<repo>          --body 'tskey-auth-…'
+  ✓ agent configured and started — joining the tailnet as `tag:agent`
 ```
 
-Run `gh secret set` **on your machine, not on the server** — there's no repo on the server, so `gh`
-there fails with *"not a git repository"*. There is **one key for everything**:
+CI doesn't use this client at all. It joins the tailnet with **its own `tag:ci` OAuth client** — the
+two `STATIO_TS_OAUTH_CLIENT_ID` / `STATIO_TS_OAUTH_SECRET` secrets you set in **Part B**. The **same
+pair works for every repo** (set it once org-wide and every repo inherits it, or per repo).
 
-- Repos in a **GitHub organization** → set it once as an **org secret** (`--org … --visibility all`);
-  every repo in the org inherits it. Deploying from **several orgs** to this one server? Run that same
-  command in each org — **the same key** works for all of them.
-- Repos in a **personal account** → GitHub has no account-wide secret, so set the same key per repo
-  (`--repo owner/repo`).
-
-:::note[The key only grants tailnet *reach* — cosign decides what deploys]
-Sharing one key is safe: it just lets CI connect to the agent. **What** a repo may deploy is fixed by
-that app's **cosign signer** (`statio app add`, below) — a repo can only deploy the app whose signing
-identity matches it, no matter which key it holds. That's why one key serves every repo and org.
+:::note[The OAuth secrets only grant tailnet *reach* — cosign decides what deploys]
+The same CI client safely serves every repo because it just lets CI connect to the agent. **What** a
+repo may deploy is fixed by that app's **cosign signer** (`statio app add`, below) — a repo can only
+deploy the app whose signing identity matches it, no matter which tailnet credential it holds. That's
+why one CI client serves every repo and org.
 :::
-
-(Rotate it later by re-running `statio init server`.)
 
 ### A2 · Accept an app 🖥️
 
@@ -246,7 +251,8 @@ permissions:
     image:   ghcr.io/accentiostudios/api       # the action builds+pushes here; must match statio app add --image
     env: |                                     # one KEY=${{ secrets.KEY }} per env in your statio.yaml
       DATABASE_URL=${{ secrets.DATABASE_URL }}
-    ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}   # the key minted by `statio init server`
+    ts-oauth-client-id: ${{ secrets.STATIO_TS_OAUTH_CLIENT_ID }}   # CI's tag:ci OAuth client
+    ts-oauth-secret: ${{ secrets.STATIO_TS_OAUTH_SECRET }}
 ```
 
 The action builds your `Dockerfile`, pushes the image to GHCR, cosign-signs it, signs the payload
@@ -260,13 +266,16 @@ The Action inputs are in the [reference](/reference/github-action/).
 From your machine, towards GitHub:
 
 ```sh
-gh secret set STATIO_TS_AUTHKEY --body '<the auth key statio init server printed>'
-gh secret set DATABASE_URL      --body 'postgresql://app:...@db:5432/appdb'
+gh secret set STATIO_TS_OAUTH_CLIENT_ID --body '<CI's tag:ci OAuth client id>'
+gh secret set STATIO_TS_OAUTH_SECRET    --body '<CI's tag:ci OAuth client secret>'
+gh secret set DATABASE_URL              --body 'postgresql://app:...@db:5432/appdb'
 ```
 
-`STATIO_TS_AUTHKEY` is the same for every repo (the server minted it once). `DATABASE_URL` and any
-other app secret follow the rule: `statio.yaml` declares the **names**; the Action's `env:` block
-gives them their **value** from `${{ secrets.* }}`. Anything non-secret goes in `env_inline`.
+`STATIO_TS_OAUTH_CLIENT_ID` and `STATIO_TS_OAUTH_SECRET` are the **same pair for every repo** — set
+them once org-wide (`--org … --visibility all`) and every repo inherits them, or set them per repo.
+`DATABASE_URL` and any other app secret follow the rule: `statio.yaml` declares the **names**; the
+Action's `env:` block gives them their **value** from `${{ secrets.* }}`. Anything non-secret goes in
+`env_inline`.
 
 ### B3 · Deploy 💻
 

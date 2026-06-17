@@ -29,8 +29,8 @@ func TestRenderTemplates(t *testing.T) {
 				t.Errorf("%s: missing %q", name, want)
 			}
 		}
-		if !strings.Contains(s, "${{ secrets.STATIO_TS_AUTHKEY }}") {
-			t.Errorf("%s: lost the ts-authkey secret expression (render ate a ${{ }})", name)
+		if !strings.Contains(s, "${{ secrets.STATIO_TS_OAUTH_CLIENT_ID }}") {
+			t.Errorf("%s: lost the OAuth secret expression (render ate a ${{ }})", name)
 		}
 	}
 }

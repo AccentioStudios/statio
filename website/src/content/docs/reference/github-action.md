@@ -20,7 +20,8 @@ separate `build-push`, `cosign-installer` or `cosign sign` steps to wire up.
     target: statio.your-tailnet.ts.net          # the agent's MagicDNS host (= signed audience)
     service: api                                # must be accepted on the server (statio app add)
     image: ghcr.io/accentiostudios/api          # the action builds+pushes here; the agent runs it
-    ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}  # minted by `statio init server`
+    ts-oauth-client-id: ${{ secrets.STATIO_TS_OAUTH_CLIENT_ID }}  # CI's tag:ci OAuth client
+    ts-oauth-secret: ${{ secrets.STATIO_TS_OAUTH_SECRET }}
     env: |                                      # optional per-deploy env, from GitHub Secrets
       DATABASE_URL=${{ secrets.DATABASE_URL }}
 ```
@@ -71,7 +72,8 @@ jobs:
           service: api
           image: ghcr.io/accentiostudios/api
           digest: ${{ inputs.digest }}          # empty on push → the action builds; set to redeploy
-          ts-authkey: ${{ secrets.STATIO_TS_AUTHKEY }}
+          ts-oauth-client-id: ${{ secrets.STATIO_TS_OAUTH_CLIENT_ID }}
+          ts-oauth-secret: ${{ secrets.STATIO_TS_OAUTH_SECRET }}
           env: |
             DATABASE_URL=${{ secrets.DATABASE_URL }}
 ```
@@ -94,7 +96,8 @@ to your existing one, and never touches your file.
 | `registry-username` / `registry-password` | no | Registry login when the action pushes. Default to the GitHub actor + `GITHUB_TOKEN` (GHCR). Set both for Docker Hub / other registries. |
 | `env` | no | Per-deploy overrides, `KEY=${{ secrets.KEY }}` lines. GitHub masks them. |
 | `statio-file` | no | Path to `statio.yaml` (default `statio.yaml`). |
-| `ts-authkey` | yes | The Tailscale **`tag:ci`** auth key minted by `statio init server` (the `STATIO_TS_AUTHKEY` secret). |
+| `ts-oauth-client-id` | yes | CI's `tag:ci` OAuth client id (the `STATIO_TS_OAUTH_CLIENT_ID` secret). |
+| `ts-oauth-secret` | yes | CI's `tag:ci` OAuth client secret (the `STATIO_TS_OAUTH_SECRET` secret). |
 | `statio-version` | no | Binary version to download (default `v1`; a bare major, exact `vX.Y.Z`, or `latest`). |
 | `timeout` | no | Deploy timeout (default `5m`). |
 | `strict` | no | Treat `success_degraded` as a failure (default `false`). |

@@ -233,9 +233,9 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 				info(" the tailnet. Get it with 'statio status' and replace the target placeholder above.)")
 			}
 
-			// STATIO_TS_AUTHKEY is the single shared key `statio init server` minted; we don't
-			// re-mint per app. Show the repo filled in so the command is copy-paste ready.
-			printAuthKeySecret(repoFromIdentity(identity), "")
+			// CI joins with its own tag:ci OAuth client (Tailscale console); we just remind the user
+			// to set those two secrets, with the repo filled so the command is copy-paste ready.
+			printCISecrets(repoFromIdentity(identity))
 			return nil
 		},
 	}
@@ -485,8 +485,8 @@ func showAppDetails(servicesDir, stateDir, actionRef, name string) error {
 	target := readAudience(stateDir)
 	sectionTitle("In your repo 💻 — the workflow step")
 	printSnippet(targetOrPlaceholder(target), name, seed.image, actionRef)
-	// STATIO_TS_AUTHKEY is the shared key from `init server` (not stored here); show the repo filled.
-	printAuthKeySecret(repoFromIdentity(seed.identity), "")
+	// CI joins with its own tag:ci OAuth client; show the two secrets with the repo filled.
+	printCISecrets(repoFromIdentity(seed.identity))
 	return nil
 }
 
@@ -650,25 +650,22 @@ func repoFromIdentity(identity string) string {
 	return ""
 }
 
-// printAuthKeySecret prints the `gh secret set STATIO_TS_AUTHKEY` commands for an app. There is ONE
-// shared key (minted once by `statio init server`); per-app isolation is the cosign signer, not this
-// key. So we show both ways to store the same key — an org secret (set once, covers every repo in the
-// org, including multiple orgs) and a per-repo secret (personal accounts / a single repo) — plus the
-// app's env secret. `repoArg` is the app's repo (filled from its signer identity); `keyArg` is the
-// key value when known, else a pointer back to `init server` (the key is never persisted).
-func printAuthKeySecret(repoArg, keyArg string) {
+// printCISecrets prints the `gh secret set` commands for an app. CI joins the tailnet with its own
+// tag:ci OAuth client (created in the Tailscale console, not minted here) — one client for every
+// repo, so the same two STATIO_TS_OAUTH_* secrets work everywhere (set them org-wide and every repo
+// inherits them). Per-app isolation is the cosign signer, not these secrets. `repoArg` is the app's
+// repo (filled from its signer identity) for the per-repo form.
+func printCISecrets(repoArg string) {
 	if repoArg == "" {
 		repoArg = "<owner>/<repo>"
 	}
-	if keyArg == "" {
-		keyArg = "<the key statio init server printed>"
-	}
 	sectionTitle("GitHub secrets 💻 — on YOUR machine (gh logged in), not this server")
-	info("STATIO_TS_AUTHKEY is ONE shared key from `statio init server`. Set it once per org, or per repo:")
+	info("CI's tag:ci OAuth client (same pair for every repo — set once org-wide if you prefer), plus")
+	info("this app's env values:")
 	codeBlock(
-		"gh secret set STATIO_TS_AUTHKEY --org <your-org> --visibility all --body '"+keyArg+"'",
-		"gh secret set STATIO_TS_AUTHKEY --repo "+repoArg+" --body '"+keyArg+"'",
-		"gh secret set DATABASE_URL      --repo "+repoArg+" --body '<value for each env in your statio.yaml>'",
+		"gh secret set STATIO_TS_OAUTH_CLIENT_ID --repo "+repoArg+" --body '<CI tag:ci OAuth client id>'",
+		"gh secret set STATIO_TS_OAUTH_SECRET    --repo "+repoArg+" --body '<CI tag:ci OAuth client secret>'",
+		"gh secret set DATABASE_URL              --repo "+repoArg+" --body '<value for each env in your statio.yaml>'",
 	)
 }
 

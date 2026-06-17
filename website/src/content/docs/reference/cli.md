@@ -10,7 +10,7 @@ sidebar:
 
 ```sh
 # Setup — on the server, then in your repo
-statio init server          # wizard: configure the agent + mint the ONE shared CI auth key
+statio init server          # wizard: configure + start the agent (CI joins with its own tag:ci OAuth client)
 statio init integrations    # wizard: NPMplus + Cloudflare + public IP
 statio init repo            # wizard: statio.yaml + how to call the Action
 
