@@ -10,6 +10,16 @@ set -euo pipefail
 image="$STATIO_IMAGE"
 digest="${STATIO_DIGEST:-}"
 
+# Reject an image input that already carries a :tag or @digest — it collides with STATIO_TAG and
+# produces malformed refs like "repo:tag:tag" downstream. Inspect only the LAST path segment: a
+# registry host legitimately carries a port (e.g. registry.example.com:5000/org/app), whose colon
+# must not trip this check.
+case "${image##*/}" in
+  *:*|*@*)
+    echo "::error::statio: 'image' input must be a repository like ghcr.io/org/app — got '$image' (remove the ':tag' or '@digest')." >&2
+    exit 1 ;;
+esac
+
 if [[ -z "$digest" ]]; then
   dockerfile="${STATIO_DOCKERFILE:-Dockerfile}"
   context="${STATIO_CONTEXT:-.}"
