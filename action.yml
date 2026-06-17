@@ -48,7 +48,7 @@ inputs:
     required: false
     default: "statio.yaml"
   env:
-    description: "Per-deploy env overrides as KEY=VALUE lines (source from ${{ secrets.* }} so GitHub masks them)"
+    description: "Per-deploy env overrides as KEY=VALUE lines (source values from your repo/org secrets so GitHub masks them)"
     required: false
     default: ""
   ts-authkey:
@@ -98,7 +98,7 @@ runs:
       shell: bash
       env:
         # Secrets go via env, never argv (process listing / set -x). GitHub masks values
-        # sourced from ${{ secrets.* }}.
+        # the calling workflow sources from its secrets.
         STATIO_ENV_OVERRIDES: ${{ inputs.env }}
         STATIO_TARGET: ${{ inputs.target }}
         STATIO_SERVICE: ${{ inputs.service }}
