@@ -245,23 +245,16 @@ func doctorDocker(ok *bool) {
 	*ok = false
 }
 
-// doctorDockerLogin reports whether docker is logged in to a registry (GHCR, Docker Hub, or any),
-// which the agent needs to pull a private image. It reads docker's config.json auths. On the
-// server the agent pulls as root, so run `sudo statio doctor` there to check root's login.
+// doctorDockerLogin reports the agent's PRIVATE-image pull credential. The agent runs sandboxed
+// (ProtectHome=yes hides ~/.docker) and reads its credential from DOCKER_CONFIG=/etc/statio/docker
+// (set in the unit) — NOT root's ~/.docker. `statio app add`/`statio registry login` write it there.
+// Checking root's ~/.docker would be misleading: a login there is invisible to the agent.
 func doctorDockerLogin() {
-	dir := os.Getenv("DOCKER_CONFIG")
-	if dir == "" {
-		// The agent pulls images as root, so when we are root the login that matters is root's
-		// (~root/.docker). That's why `sudo statio doctor` reports the agent's real situation.
-		home := "/root"
-		if runtime.GOOS == "windows" || os.Geteuid() != 0 {
-			home, _ = os.UserHomeDir()
-		}
-		dir = filepath.Join(home, ".docker")
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	path := filepath.Join("/etc/statio/docker", "config.json")
+	data, err := os.ReadFile(path)
 	if err != nil {
-		info("docker login: none detected — `docker login ghcr.io` lets the agent pull private images")
+		info("agent registry credential: none at %s — fine for PUBLIC images; for a PRIVATE image run", path)
+		info("  sudo statio registry login ghcr.io   (reuses your gh login; needs read:packages)")
 		return
 	}
 	var c struct {
@@ -269,7 +262,7 @@ func doctorDockerLogin() {
 		CredsStore string                     `json:"credsStore"`
 	}
 	if json.Unmarshal(data, &c) != nil {
-		info("docker login: could not parse the docker config")
+		info("agent registry credential: could not parse %s", path)
 		return
 	}
 	if len(c.Auths) > 0 {
@@ -277,14 +270,14 @@ func doctorDockerLogin() {
 		for r := range c.Auths {
 			regs = append(regs, r)
 		}
-		okLine("docker login: %s", strings.Join(regs, ", "))
+		okLine("agent registry credential: %s", strings.Join(regs, ", "))
 		return
 	}
 	if c.CredsStore != "" {
-		info("docker login: uses a credential helper (%s) — can't list registries from here", c.CredsStore)
+		info("agent registry credential: uses a credential helper (%s) — can't list registries from here", c.CredsStore)
 		return
 	}
-	info("docker login: not logged in to any registry — `docker login ghcr.io` (or docker.io)")
+	info("agent registry credential: %s has no auths — run `sudo statio registry login ghcr.io` for private images", path)
 }
 
 // doctorGH checks the gh CLI is installed AND logged in. It probes auth the same way `app add`

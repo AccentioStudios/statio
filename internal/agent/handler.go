@@ -64,6 +64,10 @@ func (a *Agent) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	if runErr != nil {
 		status = statusForError(runErr)
+		// The response carries only a sanitized stage message (invariant #23); the RAW error
+		// (e.g. a registry 401 reading the cosign .sig, or "no matching signatures") must reach
+		// the journal or a failed deploy is undiagnosable from the server side.
+		a.log.Warn("deploy pipeline failed", "service", req.Service, "state", res.State, "http", status, "err", runErr)
 	}
 	a.writeAudit(req, res, signer.Identity, callerFrom(r.Context()), time.Since(start))
 	writeJSON(w, status, res)

@@ -182,8 +182,13 @@ workflow `statio init repo` sets up.
 :::
 
 :::note
-Image in a **private** repo? Once, on the server: `docker login ghcr.io` (the agent pulls the image
-using the host's Docker login).
+Image in a **private** repo? The agent runs on a separate machine with no GitHub identity, so it
+needs its own **read-only** pull credential to read the image's cosign signature and pull it.
+`statio app add` offers to set this up from your `gh` login when it detects a private repo; you can
+also do it (or rotate it) anytime with `sudo statio registry login ghcr.io`. The credential lands in
+`/etc/statio/docker/config.json` (the agent reads it via `DOCKER_CONFIG`; its sandbox hides
+`~/.docker`, so a plain `docker login` would **not** be seen). The `gh` token needs the
+`read:packages` scope — add it with `gh auth refresh -s read:packages` if pulls 401.
 :::
 
 The non-interactive form, for scripts:
@@ -204,7 +209,7 @@ sudo statio doctor                 # version, docker + login, agent config, stat
 sudo statio doctor --fix           # and fix what it safely can (e.g. a missing state dir, restart)
 ```
 
-Run it with **sudo** on the server: the config (`0600` root), the agent's docker login and the
+Run it with **sudo** on the server: the config (`0600` root), the agent's registry credential and the
 service status all need root. Without sudo it still checks everything it can and tells you to re-run
 with sudo for the rest.
 

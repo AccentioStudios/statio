@@ -16,6 +16,7 @@ Every failure carries a stable `code` plus a `hint`. The raw detail (compose out
 | Agent won't start (`no tailnet address`) | The Tailscale OAuth client (scopes `auth_keys`+`devices:core`, owns `tag:agent`+`tag:ci`), that the tags are self-owned in `tagOwners`, and that the node is approved. |
 | Deploy `403` `[audience]` | The payload targets another server: check the Action's `target`. |
 | Deploy `403` `[no_signature]` / `[identity_mismatch]` | Missing bundle, or the signing identity doesn't match the app's signer (owner/repo/workflow/branch from `statio app add`). |
+| Deploy `500` at `verify` `[internal] signature` (image in a **private** repo) | The agent can't read the image's cosign `.sig` — it has no registry credential. Run `sudo statio registry login ghcr.io` on the server (the `gh` token needs `read:packages`: `gh auth refresh -s read:packages`). Then `sudo statio upgrade` if the unit predates `DOCKER_CONFIG`, and re-deploy. The raw cause is in `sudo journalctl -u statio-agent` (look for `deploy pipeline failed`). |
 | Deploy `409` `[replay_seq]` or `[expired]` | Stale/reused payload: re-run the deploy from CI. |
 | Deploy `422` `[protected]` / `[required]` | You tried to override a `--protected` key, or a `--required` key is missing. |
 | `[registry_denied]` | A dependency uses a registry outside the allowlist (`statio app add --registries`). |

@@ -241,6 +241,14 @@ auth, no API). The image and code stay private. But keyless signing records the 
 (owner/repo/workflow) in the public transparency log (Rekor): the repo **name** becomes public even if
 the repo is private.
 
+**Pulling a private image.** The agent is a separate machine with no GitHub identity (the CI's
+`GITHUB_TOKEN` lives only in the GitHub runner). To read a private image's cosign `.sig` at *verify*
+and pull it at *pull*, it needs its own **read-only** registry credential. `statio app add` provisions
+it from your `gh` login (`statio registry login` rotates it), writing
+`/etc/statio/docker/config.json`. The unit sets `DOCKER_CONFIG` to that path so **both** the
+in-process cosign keychain and the shelled-out `docker pull` read it — `ProtectHome=yes` hides
+`~/.docker`, so a plain `docker login` is invisible to the agent. The token needs `read:packages`.
+
 ## 7. Server-side anchors (`statio app add`)
 
 `statio app add` writes a per-app manifest under `/etc/statio/services/<app>/` pinning: the **cosign

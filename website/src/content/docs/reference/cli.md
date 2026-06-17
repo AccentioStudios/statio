@@ -19,6 +19,7 @@ statio app add [name]       # wizard: accept an app — image repo, signer ident
 statio app list             # list apps; pick one to view its config + setup steps, or edit it
 statio app edit <name>      # re-run the wizard (current values pre-filled) to change an app
 statio app rm <name>        # stop accepting an app's deploys
+statio registry login [host] # store the agent's pull credential for a PRIVATE image (default ghcr.io)
 statio env set <svc> KEY=VALUE [--protected] [--required]
 statio env set <svc> KEY --secret-stdin          # ops secret via stdin
 statio env list <svc>
@@ -43,6 +44,17 @@ interactive: run them without flags and they guide you. `app list` is interactiv
 pick an app and then view its config (with the workflow snippet and secrets) or re-run the wizard to
 edit it. In CI/scripts they accept flags and secrets via `--*-stdin`; the
 Action uses the flag form automatically. (`statio enable` is a deprecated alias of `statio app add`.)
+
+### Private images (`statio registry login`)
+
+The agent runs on a separate machine with **no GitHub identity**, so for a **private** image it needs
+its own read-only registry credential to read the image's cosign signature *and* pull it. `app add`
+offers to set this up from your `gh` login when it detects a private repo; `statio registry login
+ghcr.io` does it (and rotates it) on demand. It writes `/etc/statio/docker/config.json`, which the
+agent reads via `DOCKER_CONFIG` — its systemd sandbox hides `~/.docker`, so a plain `docker login`
+would **not** be visible to it. The `gh` token must carry `read:packages` (`gh auth refresh -s
+read:packages`). For a non-GHCR registry: `--from-gh=false --username <u>` with the token in the
+`STATIO_REGISTRY_TOKEN` env var (never on argv).
 
 ## Checking a running agent
 
@@ -70,8 +82,8 @@ Two different checks, for two different places:
   missing or world-readable secret is caught here instead of as a silent crash-loop — and when the
   service is down it prints the agent's last log line (read as root) so you see *why*. On a server run
   it with **`sudo statio doctor`** for the full picture — the config, the secret files, the agent's
-  docker login and the service all need root, while the gh check is still done as the user you sudo
-  from. `statio doctor --fix` resolves what it safely can on its own (create a missing state dir,
+  registry credential and the service all need root, while the gh check is still done as the user you
+  sudo from. `statio doctor --fix` resolves what it safely can on its own (create a missing state dir,
   tighten a loose secret's perms, restart a crash-looping agent) and tells you which remaining fixes
   need a `sudo` re-run. A *missing* secret it can't fabricate — it points you at the `init` step that
   regenerates it.

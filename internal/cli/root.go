@@ -39,6 +39,7 @@ func Execute(version string) error {
 		grouped("setup", newInitCmd(version)),
 		grouped("apps", newAppCmd()),
 		grouped("apps", newEnvCmd()),
+		grouped("apps", newRegistryCmd()),
 		grouped("operate", newStatusCmd()),
 		grouped("operate", newLogsCmd()),
 		grouped("maint", newUpgradeCmd(version)),
