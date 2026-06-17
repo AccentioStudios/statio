@@ -90,9 +90,8 @@ func newUpgradeCmd(current string) *cobra.Command {
 			// restart to recover.
 			root := runtime.GOOS != "windows" && os.Geteuid() == 0
 			if isServer() && root && systemctlAvailable() {
-				// Preserve the config path the operator chose at init (read back from the unit);
-				// hardcoding it would clobber a non-default --config and crash-loop the agent.
-				if err := writeAgentUnit(configPathFromUnit()); err != nil {
+				// statio uses one fixed config path, so re-rendering the unit is unconditional.
+				if err := writeAgentUnit(); err != nil {
 					warnLine("could not refresh the systemd unit: %v", err)
 				} else {
 					okLine("refreshed the statio-agent systemd unit")

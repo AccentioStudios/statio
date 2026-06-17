@@ -90,7 +90,7 @@ func confirm(title string) (bool, error) {
 // ============================ init server ============================
 
 func newInitServerCmd() *cobra.Command {
-	var hostname, issuer, configPath, oauthSecretFile, clientID string
+	var hostname, issuer, oauthSecretFile, clientID string
 	var oauthStdin bool
 	cmd := &cobra.Command{
 		Use:   "server",
@@ -148,7 +148,7 @@ func newInitServerCmd() *cobra.Command {
 
 				sectionTitle("Summary")
 				info("hostname: %s", hostname)
-				info("config:   %s", configPath)
+				info("config:   %s", defaultConfigPath)
 				ok, err := confirm("Write the agent config + systemd unit?")
 				if err != nil {
 					return err
@@ -168,10 +168,10 @@ func newInitServerCmd() *cobra.Command {
 				clientSecret = string(b)
 			}
 
-			if err := writeServerFiles(hostname, issuer, configPath, clientID, clientSecret); err != nil {
+			if err := writeServerFiles(hostname, issuer, clientID, clientSecret); err != nil {
 				return err
 			}
-			okLine("Wrote: %s, /etc/statio/secrets/oauth.json and the systemd unit", configPath)
+			okLine("Wrote: %s, /etc/statio/secrets/oauth.json and the systemd unit", defaultConfigPath)
 
 			// We wrote the unit and run as root — bring the agent up ourselves instead of
 			// telling the user to run systemctl by hand.
@@ -218,7 +218,6 @@ func newInitServerCmd() *cobra.Command {
 	f.BoolVar(&oauthStdin, "ts-oauth-secret-stdin", false, "read the OAuth client secret from stdin (non-interactive)")
 	f.StringVar(&oauthSecretFile, "ts-oauth-secret-file", "", "read the OAuth client secret from a file (non-interactive)")
 	f.StringVar(&issuer, "issuer", "", "cosign OIDC issuer")
-	f.StringVar(&configPath, "config", "/etc/statio/config.yaml", "config output path")
 	return cmd
 }
 
@@ -240,11 +239,11 @@ func waitAudience(stateDir string, timeout time.Duration) string {
 	}
 }
 
-func writeServerFiles(hostname, issuer, configPath, clientID, clientSecret string) error {
+func writeServerFiles(hostname, issuer, clientID, clientSecret string) error {
 	if err := os.MkdirAll("/etc/statio/secrets", 0o700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(defaultConfigPath), 0o700); err != nil {
 		return err
 	}
 	// Create the state dir up front: the systemd unit lists it in ReadWritePaths, and systemd
@@ -271,57 +270,29 @@ services_dir: /etc/statio/services
 state_dir: /var/lib/statio
 log_level: info
 `, hostname, issuer)
-	if err := fsutil.SecureWrite(configPath, []byte(cfg), 0o600); err != nil {
+	if err := fsutil.SecureWrite(defaultConfigPath, []byte(cfg), 0o600); err != nil {
 		return err
 	}
-	return writeAgentUnit(configPath)
+	return writeAgentUnit()
 }
 
 // agentUnitPath is where the systemd unit lives on a server.
 const agentUnitPath = "/etc/systemd/system/statio-agent.service"
 
-// writeAgentUnit renders the embedded systemd unit for the given config path and writes it.
-// Shared by `init server` (first install) and `statio upgrade` (so unit-level fixes — e.g. a new
-// sandbox address family — reach existing servers on upgrade, not only on a fresh init).
-func writeAgentUnit(configPath string) error {
-	unit, err := render("statio-agent.service.tmpl", map[string]string{"ConfigPath": configPath})
+// defaultConfigPath is the single, fixed location of the agent config. statio uses one path
+// everywhere (there is no --config override), so `upgrade` can re-render the unit without having
+// to recover a custom path from it.
+const defaultConfigPath = "/etc/statio/config.yaml"
+
+// writeAgentUnit renders the embedded systemd unit and writes it. Shared by `init server` (first
+// install) and `statio upgrade` (so unit-level fixes — e.g. a new sandbox address family — reach
+// existing servers on upgrade, not only on a fresh init).
+func writeAgentUnit() error {
+	unit, err := render("statio-agent.service.tmpl", map[string]string{"ConfigPath": defaultConfigPath})
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(agentUnitPath, unit, 0o644)
-}
-
-// configPathFromUnit reads the --config path baked into the installed unit's ExecStart, so an
-// `upgrade` that re-renders the unit preserves a non-default path chosen at `init server` time (the
-// path is persisted nowhere else). Falls back to the default if the unit is absent or unparsable.
-func configPathFromUnit() string {
-	data, err := os.ReadFile(agentUnitPath)
-	if err != nil {
-		return defaultConfigPath
-	}
-	return parseConfigPathFromUnit(string(data))
-}
-
-const defaultConfigPath = "/etc/statio/config.yaml"
-
-// parseConfigPathFromUnit extracts the `--config <path>` from a unit file's ExecStart line,
-// defaulting when absent/unparsable. Split out from configPathFromUnit so it can be unit-tested.
-func parseConfigPathFromUnit(unit string) string {
-	for _, line := range strings.Split(unit, "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(line), "ExecStart=") {
-			continue
-		}
-		fields := strings.Fields(line)
-		for i, f := range fields {
-			if f == "--config" && i+1 < len(fields) {
-				return fields[i+1]
-			}
-			if p, ok := strings.CutPrefix(f, "--config="); ok {
-				return p
-			}
-		}
-	}
-	return defaultConfigPath
 }
 
 // ======================== init integrations =========================

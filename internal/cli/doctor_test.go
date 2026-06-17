@@ -2,21 +2,6 @@ package cli
 
 import "testing"
 
-func TestParseConfigPathFromUnit(t *testing.T) {
-	cases := map[string]string{
-		"[Service]\nExecStart=/usr/local/bin/statio agent run --config /etc/statio/config.yaml\n": "/etc/statio/config.yaml",
-		"ExecStart=/usr/local/bin/statio agent run --config /opt/statio/cfg.yaml":                 "/opt/statio/cfg.yaml",
-		"ExecStart=/usr/local/bin/statio agent run --config=/opt/x.yaml":                          "/opt/x.yaml",
-		"ExecStart=/usr/local/bin/statio agent run":                                               "/etc/statio/config.yaml", // no --config → default
-		"": "/etc/statio/config.yaml", // empty → default
-	}
-	for unit, want := range cases {
-		if got := parseConfigPathFromUnit(unit); got != want {
-			t.Errorf("parseConfigPathFromUnit(%q) = %q, want %q", unit, got, want)
-		}
-	}
-}
-
 func TestPickAgentLogLine(t *testing.T) {
 	// A real crash-loop blob (journalctl -o cat): the agent's own "statio:" line is buried among
 	// systemd lifecycle lines, and is NOT the last line. We must return it, not systemd's noise.
