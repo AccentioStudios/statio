@@ -50,7 +50,6 @@ func Execute(version string) error {
 		}),
 		grouped("internal", newAgentCmd()),
 		grouped("internal", newDeployCmd()),
-		newEnableAliasCmd(), // hidden, deprecated alias of `app add`
 	)
 	return root.Execute()
 }

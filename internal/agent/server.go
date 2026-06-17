@@ -26,8 +26,7 @@ import (
 
 // readTailscaleAuthKey returns the credential tsnet uses to join the tailnet. The file is the
 // JSON `{client_id, client_secret}` written by `statio init server` (the OAuth client secret
-// doubles as a node auth key for the client's tags). For backward compatibility it also accepts
-// a legacy file containing the raw secret string.
+// doubles as a node auth key for the client's tags).
 func readTailscaleAuthKey(path string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -36,10 +35,10 @@ func readTailscaleAuthKey(path string) (string, error) {
 	var j struct {
 		ClientSecret string `json:"client_secret"`
 	}
-	if json.Unmarshal(raw, &j) == nil && j.ClientSecret != "" {
-		return withOAuthKeyAttrs(j.ClientSecret), nil
+	if err := json.Unmarshal(raw, &j); err != nil || j.ClientSecret == "" {
+		return "", fmt.Errorf("%s: expected JSON {client_id, client_secret} written by `statio init server`", path)
 	}
-	return withOAuthKeyAttrs(strings.TrimSpace(string(raw))), nil
+	return withOAuthKeyAttrs(j.ClientSecret), nil
 }
 
 // withOAuthKeyAttrs forces a persistent, pre-authorized node when the credential is an OAuth

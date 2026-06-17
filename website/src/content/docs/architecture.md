@@ -259,7 +259,7 @@ workflow `permissions`. A public image sends no token.
 signer** (owner/repo/workflow/branch — who may deploy this app), the allowed image **repository**
 (repo-equality), the dependency **registry allowlist**, the proxy/dns **domain suffix allowlists** and
 **upstream allowlist**, `max_services`, and the rollback policy. A deploy is compared against these —
-it can never widen them. (`statio enable` is a deprecated alias of `statio app add`.)
+it can never widen them.
 
 ## 8. Env courier & tmpfs
 

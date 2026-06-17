@@ -42,7 +42,7 @@ The wizards (`init server`, `init integrations`, `init repo`, `app add`, `app ed
 interactive: run them without flags and they guide you. `app list` is interactive too — it lets you
 pick an app and then view its config (with the workflow snippet and secrets) or re-run the wizard to
 edit it. In CI/scripts they accept flags and secrets via `--*-stdin`; the
-Action uses the flag form automatically. (`statio enable` is a deprecated alias of `statio app add`.)
+Action uses the flag form automatically.
 
 ### Private images
 

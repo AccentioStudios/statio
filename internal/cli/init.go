@@ -433,8 +433,8 @@ func newInitRepoCmd() *cobra.Command {
 				}
 				if err := runForm(
 					inputField("Server address (Tailscale)", "The name you gave the agent + .<your-tailnet>.ts.net. E.g. statio.your-org.ts.net", "statio.<your-tailnet>.ts.net", &target, true),
-					inputField("Service", "Service name (must be enabled on the agent with 'statio enable')", "api", &service, true),
-					inputField("Image repository", "Your image repo (must match 'statio enable --image')", "ghcr.io/accentiostudios/api", &image, true),
+					inputField("Service", "Service name (must be accepted on the agent with 'statio app add')", "api", &service, true),
+					inputField("Image repository", "Your image repo (must match 'statio app add --image')", "ghcr.io/accentiostudios/api", &image, true),
 				); err != nil {
 					return err
 				}

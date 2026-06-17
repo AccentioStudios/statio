@@ -21,19 +21,11 @@ import (
 // already-accepted app — standing one up is never a side effect of a payload (invariant #18).
 func newAppCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "app", Short: "Manage the apps allowed to deploy to this server"}
-	cmd.AddCommand(newAppAddCmd("add [name]", false), newAppListCmd(), newAppEditCmd(), newAppRmCmd())
+	cmd.AddCommand(newAppAddCmd(), newAppListCmd(), newAppEditCmd(), newAppRmCmd())
 	return cmd
 }
 
-// newEnableAliasCmd keeps `statio enable` working as a deprecated alias of `statio app add`.
-func newEnableAliasCmd() *cobra.Command {
-	c := newAppAddCmd("enable [name]", true)
-	c.Hidden = true
-	c.Deprecated = "use 'statio app add'"
-	return c
-}
-
-func newAppAddCmd(use string, _ bool) *cobra.Command {
+func newAppAddCmd() *cobra.Command {
 	var (
 		image, servicesDir, stateDir, actionRef, target string
 		registries                                      []string
@@ -43,7 +35,7 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 		repoFlag, workflowFlag, branchFlag, issuer      string
 	)
 	cmd := &cobra.Command{
-		Use:     use,
+		Use:     "add [name]",
 		Short:   "Accept an app: pin its image repo, signer identity and domains",
 		Args:    cobra.MaximumNArgs(1),
 		PreRunE: rootPreRun,
