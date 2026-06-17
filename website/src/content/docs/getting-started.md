@@ -74,6 +74,17 @@ this table:
 | **Agent** | `tag:agent` | `auth_keys` + `devices:core` | `statio init server` (Part A) |
 | **CI**    | `tag:ci`    | `auth_keys`                  | the `STATIO_TS_OAUTH_CLIENT_ID` + `STATIO_TS_OAUTH_SECRET` GitHub secrets (Part B) |
 
+Each client gives you an **id** and a **secret**. For CI's client, those map to the two GitHub
+secrets exactly like this (you set them in Part B):
+
+| Tailscale value | Looks like | GitHub secret |
+|---|---|---|
+| CI client **id** | `k123ABC...` (short, not sensitive) | `STATIO_TS_OAUTH_CLIENT_ID` |
+| CI client **secret** | `tskey-client-…` | `STATIO_TS_OAUTH_SECRET` |
+
+The agent client's id + secret aren't GitHub secrets — you paste them straight into `statio init
+server`.
+
 **What each scope does**
 
 - **`auth_keys`** (Keys → Auth Keys → Write) — lets the client mint the node key it joins the tailnet
