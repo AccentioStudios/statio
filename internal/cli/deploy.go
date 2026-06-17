@@ -26,8 +26,21 @@ func newDeployCmd() *cobra.Command {
 		Use:   "deploy",
 		Short: "Build, cosign-sign, and send a deploy to the agent (used by the GitHub Action)",
 		RunE: func(c *cobra.Command, _ []string) error {
-			if target == "" || service == "" || image == "" || digest == "" {
-				return fmt.Errorf("--target, --service, --image and --digest are required")
+			var missing []string
+			if target == "" {
+				missing = append(missing, "--target (the agent's MagicDNS host)")
+			}
+			if service == "" {
+				missing = append(missing, "--service")
+			}
+			if image == "" {
+				missing = append(missing, "--image")
+			}
+			if digest == "" {
+				missing = append(missing, "--digest")
+			}
+			if len(missing) > 0 {
+				return fmt.Errorf("missing required deploy input(s): %s — set them in the statio action's `with:` block", strings.Join(missing, ", "))
 			}
 			data, err := os.ReadFile(statioFile)
 			if err != nil {
