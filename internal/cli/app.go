@@ -216,7 +216,16 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 			if target == "" {
 				target = readAudience(stateDir)
 			}
-			sectionTitle("In your repo 💻 — add this step to your workflow")
+			sectionTitle("In your repo 💻 — two things CI needs (run `statio init repo` to scaffold both)")
+			info("1) statio.yaml at the repo ROOT — the deploy reads it; without it CI fails with")
+			info("   `open statio.yaml: no such file`. Minimal for %q (declare your real ports + env):", name)
+			codeBlock(
+				"services:",
+				"  - name: "+name+"          # must match this app",
+				"    ports: [3000]            # the port your app listens on",
+				"    env: [DATABASE_URL]      # NAMES only; values come from the workflow env: below",
+			)
+			info("2) the workflow step (this is also what `statio init repo` writes):")
 			printSnippet(targetOrPlaceholder(target), name, image, actionRef)
 			if target == "" {
 				info("(Couldn't read the agent's address yet — it appears once the agent finishes joining")
