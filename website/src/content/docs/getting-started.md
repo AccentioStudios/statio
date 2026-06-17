@@ -63,32 +63,31 @@ stays so you can still assign the tags by hand.
 
 ### 2. Create the two OAuth clients (with those tags)
 
-You create **two** OAuth clients in **Settings →
+Create **two** OAuth clients at **Settings →
 [OAuth clients](https://login.tailscale.com/admin/settings/oauth) → Generate OAuth client** (newer
-consoles group this under **Trust credentials → New credential**). One is for the agent (this
-server), the other is CI's own. Keeping them separate means **CI can never act as the agent**: CI's
-client can't mint `tag:agent` keys, so a compromised workflow can't register a rogue server.
+consoles: **Trust credentials → New credential**) — one for the agent, one for CI. For each, pick
+**Custom scopes** (every scope **Write**), and when Tailscale prompts for tags, assign the one from
+this table:
 
-**The agent's client** — pick **Custom scopes** and enable these two, both **Write**:
+| OAuth client | Assign tag | Scopes (Write) | Its id + secret go to |
+|---|---|---|---|
+| **Agent** | `tag:agent` | `auth_keys` + `devices:core` | `statio init server` (Part A) |
+| **CI**    | `tag:ci`    | `auth_keys`                  | the `STATIO_TS_OAUTH_CLIENT_ID` + `STATIO_TS_OAUTH_SECRET` GitHub secrets (Part B) |
 
-| Tailscale scope | Where to find it in the UI | Why |
-|---|---|---|
-| `auth_keys`    | **Keys → Auth Keys → Write** | lets the agent join the tailnet |
-| `devices:core` | **Devices → Core → Write**   | lets the agent register itself as a node and carry its tag |
+**What each scope does**
 
-Enabling **Devices → Core** makes Tailscale require you to pick **tags** — choose `tag:agent` (a
-credential can only register a node for a tag it owns, and the agent joins as `tag:agent`).
-Generate it and copy the **client id** + **secret** — you paste them into `statio init server` next.
+- **`auth_keys`** (Keys → Auth Keys → Write) — lets the client mint the node key it joins the tailnet
+  with. **Both** clients need it.
+- **`devices:core`** (Devices → Core → Write) — lets the agent register and manage itself as a
+  persistent node. **Only the agent** needs it. (Enabling it is also what makes Tailscale prompt you
+  to pick the tag.)
 
-**CI's client** — pick **Custom scopes** and enable just one, **Write**:
+The **same CI pair works for every repo** — set it once org-wide and every repo inherits it.
 
-| Tailscale scope | Where to find it in the UI | Why |
-|---|---|---|
-| `auth_keys` | **Keys → Auth Keys → Write** | lets GitHub Actions join the tailnet as an ephemeral `tag:ci` node |
-
-Tailscale asks for **tags** here too — choose `tag:ci`. Copy this client's **id** + **secret**; you
-store them as the two `STATIO_TS_OAUTH_*` GitHub secrets in **Part B**. The **same pair works for
-every repo** — set it once org-wide and every repo inherits it.
+:::caution[Keep them separate]
+CI's client carries only `tag:ci`, so **CI can never mint `tag:agent` keys** — a compromised workflow
+can't register a rogue server. (What a repo may actually deploy is still gated by its cosign signer.)
+:::
 
 These are the only manual Tailscale steps.
 

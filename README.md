@@ -100,16 +100,17 @@ join as `tag:ci` — without self-ownership Tailscale rejects both with *"tags �
 ```
 
 **2. Create two OAuth clients** at *Settings → OAuth clients → Generate* (newer consoles: *Trust
-credentials → New credential*), each with **Custom scopes**:
+credentials → New credential*), each with **Custom scopes** (every scope **Write**), assigning the
+tag from this table when prompted:
 
-- **The agent's client** (`tag:agent`) — enable `auth_keys` (**Keys → Auth Keys**) and `devices:core`
-  (**Devices → Core**), both **Write**; pick tag `tag:agent`. Copy its **id** + **secret** for
-  `init server`.
-- **CI's client** (`tag:ci`) — enable `auth_keys` (**Keys → Auth Keys → Write**); pick tag `tag:ci`.
-  Copy its **id** + **secret** as the two `STATIO_TS_OAUTH_*` GitHub secrets (same pair for every
-  repo).
+| OAuth client | Assign tag | Scopes (Write) | Its id + secret go to |
+|---|---|---|---|
+| **Agent** | `tag:agent` | `auth_keys` + `devices:core` | `statio init server` |
+| **CI**    | `tag:ci`    | `auth_keys`                  | the `STATIO_TS_OAUTH_CLIENT_ID` + `STATIO_TS_OAUTH_SECRET` GitHub secrets (one pair for all repos) |
 
-Keeping CI on its own `tag:ci` client means CI can never act as the agent.
+`auth_keys` lets a client mint the node key it joins with (both need it); `devices:core` lets the
+agent register itself as a persistent node (agent only). Keeping CI on its own `tag:ci` client means
+CI can never mint `tag:agent` keys — it can't act as the agent.
 ([Full step-by-step with the exact UI](https://statio.accentio.dev/getting-started/#step-0--tailscale-once-on-the-web).)
 
 ### On your server 🖥️
