@@ -307,17 +307,23 @@ func newInitIntegrationsCmd() *cobra.Command {
 				return fmt.Errorf("init integrations is interactive; run it in a terminal")
 			}
 			banner("statio · init integrations", "Reverse proxy (NPMplus) and DNS (Cloudflare)")
+			info("OPTIONAL. Only needed to auto-expose an app on a PUBLIC domain (TLS via NPMplus + a")
+			info("Cloudflare A record). Your deploys already work without this — skip it if you don't need")
+			info("a public domain or you run a different proxy. Proxy/DNS are best-effort: if they're")
+			info("unreachable a deploy still succeeds (success_degraded) and converges on retry.")
 
-			doNPM, err := confirm("Set up NPMplus (reverse proxy)?")
+			doNPM, err := confirm("Set up NPMplus (reverse proxy)? Requires NPMplus already running + a user")
 			if err != nil {
 				return err
 			}
 			if doNPM {
-				url, identity, secret := "http://npmplus:81", "statio-agent", ""
+				info("In NPMplus: create a dedicated non-admin user (Users → Add). You'll enter ITS login")
+				info("email + password below. The agent reaches NPMplus over localhost from the host.")
+				url, identity, secret := "http://127.0.0.1:81", "", ""
 				if err := runForm(
-					inputField("NPMplus base URL", "Localhost or docker network name", "http://npmplus:81", &url, true),
-					inputField("NPMplus API identity", "Dedicated non-admin user", "statio-agent", &identity, true),
-					passwordField("NPMplus API secret", "Stored 0600 root", &secret),
+					inputField("NPMplus API URL", "Reachable from THIS host — the agent runs on the host, not in docker, and talks to NPMplus over localhost. The admin/API port (usually 81). E.g. http://127.0.0.1:81", "http://127.0.0.1:81", &url, true),
+					inputField("NPMplus login email", "The email of the dedicated non-admin NPMplus user (this is the API 'identity').", "statio@your-domain.com", &identity, true),
+					passwordField("NPMplus password", "That user's password (the API 'secret'). Stored 0600, root-only.", &secret),
 				); err != nil {
 					return err
 				}
@@ -330,17 +336,19 @@ func newInitIntegrationsCmd() *cobra.Command {
 				codeBlock("npmplus:", "  base_url: "+url, "  credentials_file: /etc/statio/secrets/npmplus.json")
 			}
 
-			doCF, err := confirm("Set up Cloudflare (DNS)?")
+			doCF, err := confirm("Set up Cloudflare (DNS)? Lets statio auto-create the public A record")
 			if err != nil {
 				return err
 			}
 			if doCF {
+				info("Create a scoped API token at Cloudflare → My Profile → API Tokens → Create Token,")
+				info("with Zone.DNS:Edit on THIS zone only (not a global key). You'll paste it below.")
 				zoneID, apex, ip, token := "", "", "", ""
 				if err := runForm(
-					inputField("Cloudflare Zone ID", "Dashboard → your zone → Overview", "", &zoneID, true),
-					inputField("Zone apex", "The root domain (e.g. example.com)", "example.com", &apex, true),
-					inputField("Server public IP", "Where the A records will point", "203.0.113.10", &ip, true),
-					passwordField("Cloudflare API token", "Zone.DNS:Edit scope on this zone; 0600 root", &token),
+					inputField("Cloudflare Zone ID", "Cloudflare dashboard → your domain → Overview (right column), e.g. 1a2b3c… (a 32-char hex id).", "", &zoneID, true),
+					inputField("Zone apex", "The root domain the zone covers (e.g. example.com).", "example.com", &apex, true),
+					inputField("Server public IP", "The public IPv4 the A records point to — your droplet's public IP.", "203.0.113.10", &ip, true),
+					passwordField("Cloudflare API token", "The scoped token (Zone.DNS:Edit on this zone). Stored 0600, root-only.", &token),
 				); err != nil {
 					return err
 				}
