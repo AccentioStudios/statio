@@ -142,6 +142,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	notifyReady()
+	startWatchdog(ctx) // keep systemd's WatchdogSec from SIGABRT-ing a healthy, idle agent
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
