@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,7 +33,6 @@ func newDoctorCmd(version string) *cobra.Command {
 
 			doctorVersion(version)
 			doctorDocker(&ok)
-			doctorDockerLogin()
 			doctorTool("git", "repo auto-detect in `statio init repo` (client only)", true, &ok)
 			doctorGH()
 			doctorCosign()
@@ -243,41 +241,6 @@ func doctorDocker(ok *bool) {
 		failLine("docker not found — required on the server")
 	}
 	*ok = false
-}
-
-// doctorDockerLogin reports the agent's PRIVATE-image pull credential. The agent runs sandboxed
-// (ProtectHome=yes hides ~/.docker) and reads its credential from DOCKER_CONFIG=/etc/statio/docker
-// (set in the unit) — NOT root's ~/.docker. `statio app add`/`statio registry login` write it there.
-// Checking root's ~/.docker would be misleading: a login there is invisible to the agent.
-func doctorDockerLogin() {
-	path := filepath.Join("/etc/statio/docker", "config.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		info("agent registry credential: none at %s — fine for PUBLIC images; for a PRIVATE image run", path)
-		info("  sudo statio registry login ghcr.io   (reuses your gh login; needs read:packages)")
-		return
-	}
-	var c struct {
-		Auths      map[string]json.RawMessage `json:"auths"`
-		CredsStore string                     `json:"credsStore"`
-	}
-	if json.Unmarshal(data, &c) != nil {
-		info("agent registry credential: could not parse %s", path)
-		return
-	}
-	if len(c.Auths) > 0 {
-		regs := make([]string, 0, len(c.Auths))
-		for r := range c.Auths {
-			regs = append(regs, r)
-		}
-		okLine("agent registry credential: %s", strings.Join(regs, ", "))
-		return
-	}
-	if c.CredsStore != "" {
-		info("agent registry credential: uses a credential helper (%s) — can't list registries from here", c.CredsStore)
-		return
-	}
-	info("agent registry credential: %s has no auths — run `sudo statio registry login ghcr.io` for private images", path)
 }
 
 // doctorGH checks the gh CLI is installed AND logged in. It probes auth the same way `app add`

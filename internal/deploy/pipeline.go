@@ -18,15 +18,18 @@ import (
 )
 
 // Verifier checks the cosign keyless signature of an image digest against the expected
-// signer. It is the first hard gate; nothing external happens before it passes.
+// signer. It is the first hard gate; nothing external happens before it passes. auth is an
+// OPTIONAL transient registry credential (the CI-forwarded pull token) for a private image; nil
+// for a public one.
 type Verifier interface {
-	Verify(ctx context.Context, repository, digest string, signer EffectiveSigner) error
+	Verify(ctx context.Context, repository, digest string, signer EffectiveSigner, auth *spec.RegistryAuth) error
 }
 
 // Puller pulls an image by digest and returns the resolved digest (for the post-pull
-// re-check that closes the .sig-vs-manifest substitution gap).
+// re-check that closes the .sig-vs-manifest substitution gap). auth is the same OPTIONAL
+// transient registry credential used at verify; nil for a public image.
 type Puller interface {
-	Pull(ctx context.Context, ref string) (resolvedDigest string, err error)
+	Pull(ctx context.Context, ref string, auth *spec.RegistryAuth) (resolvedDigest string, err error)
 }
 
 // ProxyProvider reconciles a reverse-proxy host (NPMplus). May be nil.
@@ -135,6 +138,9 @@ type Deployer struct {
 	Proxy     ProxyProvider
 	DNS       DNSProvider
 	Resolve   env.SecretResolver
+	// RegistryAuth is the OPTIONAL transient pull credential the CI forwarded in the envelope for a
+	// private image. Used in-memory for this deploy's verify + pull, then discarded; nil for public.
+	RegistryAuth *spec.RegistryAuth
 	// Audience is this agent's resolved identity; a payload must target it (#17).
 	Audience string
 	Now      func() string
@@ -182,7 +188,7 @@ func (d *Deployer) Run(ctx context.Context, req *spec.DeployRequest) (*Result, e
 	res.stage("admit", "ok", "")
 
 	// 2. VERIFY — cosign keyless hard gate.
-	if err := d.Verifier.Verify(ctx, req.Image.Repository, req.Image.Digest, d.effectiveSigner()); err != nil {
+	if err := d.Verifier.Verify(ctx, req.Image.Repository, req.Image.Digest, d.effectiveSigner(), d.RegistryAuth); err != nil {
 		return d.fail(res, "verify", "signature", err)
 	}
 	res.stage("verify", "ok", "")
@@ -220,7 +226,7 @@ func (d *Deployer) Run(ctx context.Context, req *spec.DeployRequest) (*Result, e
 	}
 
 	// 4. PULL by digest + post-pull re-check.
-	resolved, err := d.Puller.Pull(ctx, ref)
+	resolved, err := d.Puller.Pull(ctx, ref, d.RegistryAuth)
 	if err != nil {
 		return d.fail(res, "pull", "pull", err)
 	}

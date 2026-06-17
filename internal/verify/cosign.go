@@ -19,8 +19,12 @@ import (
 	"sync"
 
 	"github.com/accentiostudios/statio/internal/deploy"
+	"github.com/accentiostudios/statio/internal/spec"
+	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/sigstore/cosign/v3/pkg/cosign"
+	ociremote "github.com/sigstore/cosign/v3/pkg/oci/remote"
 	"github.com/sigstore/sigstore-go/pkg/root"
 )
 
@@ -64,8 +68,9 @@ func (v *Verifier) trustedMaterial() (root.TrustedMaterial, error) {
 }
 
 // Verify checks that repository@digest has a cosign signature matching the expected
-// signer. It returns nil only on a verified, identity-matched signature.
-func (v *Verifier) Verify(ctx context.Context, repository, digest string, signer deploy.EffectiveSigner) error {
+// signer. It returns nil only on a verified, identity-matched signature. auth is an OPTIONAL
+// transient pull credential (the CI-forwarded token) for a PRIVATE image's .sig; nil → anonymous.
+func (v *Verifier) Verify(ctx context.Context, repository, digest string, signer deploy.EffectiveSigner, auth *spec.RegistryAuth) error {
 	ref, err := name.NewDigest(repository + "@" + digest)
 	if err != nil {
 		return fmt.Errorf("bad image reference: %w", err)
@@ -84,6 +89,14 @@ func (v *Verifier) Verify(ctx context.Context, repository, digest string, signer
 		}},
 		IgnoreSCT:  !v.requireSCT,
 		IgnoreTlog: !v.requireTlog,
+	}
+	// For a private image, read the signature with the forwarded token. Without this the default
+	// keychain is anonymous and GHCR returns 401 on the .sig manifest. A nil auth keeps the default.
+	if auth != nil && auth.Password != "" {
+		co.RegistryClientOpts = []ociremote.Option{ociremote.WithRemoteOptions(
+			remote.WithContext(ctx),
+			remote.WithAuth(&authn.Basic{Username: auth.Username, Password: auth.Password}),
+		)}
 	}
 
 	_, bundleVerified, err := cosign.VerifyImageSignatures(ctx, ref, co)

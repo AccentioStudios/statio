@@ -54,7 +54,9 @@ func (a *Agent) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "payload signature verification failed"})
 		return
 	}
-	d, err := a.buildDeployer(m)
+	// The optional registry credential rides on the envelope (not the signed payload) and is used
+	// transiently for this deploy's verify + pull only — never logged, audited, or persisted.
+	d, err := a.buildDeployer(m, env.Registry)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "agent misconfigured"})
 		return
@@ -101,7 +103,7 @@ func (a *Agent) auditPath(service string) string {
 	return filepath.Join(a.cfg.StateDir, "services", service, "deploy-audit.jsonl")
 }
 
-func (a *Agent) buildDeployer(m *deploy.ServiceManifest) (*deploy.Deployer, error) {
+func (a *Agent) buildDeployer(m *deploy.ServiceManifest, reg *spec.RegistryAuth) (*deploy.Deployer, error) {
 	var proxyP deploy.ProxyProvider
 	if a.cfg.NPMplus.BaseURL != "" && a.cfg.NPMplus.CredentialsFile != "" {
 		c, err := loadNPMplusCreds(a.cfg.NPMplus.CredentialsFile)
@@ -120,18 +122,19 @@ func (a *Agent) buildDeployer(m *deploy.ServiceManifest) (*deploy.Deployer, erro
 	}
 
 	return &deploy.Deployer{
-		Cfg:       a.cfg,
-		Manifest:  m,
-		StatePath: filepath.Join(a.cfg.StateDir, "services", m.Name, "state.json"),
-		Verifier:  a.verifier,
-		Puller:    deploy.DockerPuller{},
-		Proxy:     proxyP,
-		DNS:       dnsP,
-		Resolve:   env.ConfinedResolver(filepath.Join(m.Dir(), "secrets")),
-		Audience:  a.audience,
-		Now:       func() string { return time.Now().UTC().Format(time.RFC3339Nano) },
-		Clock:     func() time.Time { return time.Now().UTC() },
-		Log:       a.log,
+		Cfg:          a.cfg,
+		Manifest:     m,
+		StatePath:    filepath.Join(a.cfg.StateDir, "services", m.Name, "state.json"),
+		Verifier:     a.verifier,
+		Puller:       deploy.DockerPuller{},
+		Proxy:        proxyP,
+		DNS:          dnsP,
+		Resolve:      env.ConfinedResolver(filepath.Join(m.Dir(), "secrets")),
+		RegistryAuth: reg,
+		Audience:     a.audience,
+		Now:          func() string { return time.Now().UTC().Format(time.RFC3339Nano) },
+		Clock:        func() time.Time { return time.Now().UTC() },
+		Log:          a.log,
 	}, nil
 }
 

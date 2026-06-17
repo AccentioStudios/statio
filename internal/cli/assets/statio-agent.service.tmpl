@@ -11,12 +11,6 @@ Restart=on-failure
 RestartSec=2s
 WatchdogSec=30s
 
-# DOCKER_CONFIG points the in-process cosign keychain (authn.DefaultKeychain reads
-# $DOCKER_CONFIG/config.json) AND the shelled-out `docker pull` at a credential file under
-# /etc/statio — NOT ~/.docker, which ProtectHome=yes hides. `statio app add` writes the ghcr
-# pull credential here so the agent can read the cosign .sig of a PRIVATE image and pull it.
-Environment=DOCKER_CONFIG=/etc/statio/docker
-
 # /run/statio is tmpfs (RAM): per-service compose + app env files live here so app secrets
 # never touch persistent disk. Cleared on stop/reboot — a recreate then requires a redeploy.
 RuntimeDirectory=statio

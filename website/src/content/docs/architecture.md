@@ -241,13 +241,17 @@ auth, no API). The image and code stay private. But keyless signing records the 
 (owner/repo/workflow) in the public transparency log (Rekor): the repo **name** becomes public even if
 the repo is private.
 
-**Pulling a private image.** The agent is a separate machine with no GitHub identity (the CI's
-`GITHUB_TOKEN` lives only in the GitHub runner). To read a private image's cosign `.sig` at *verify*
-and pull it at *pull*, it needs its own **read-only** registry credential. `statio app add` provisions
-it from your `gh` login (`statio registry login` rotates it), writing
-`/etc/statio/docker/config.json`. The unit sets `DOCKER_CONFIG` to that path so **both** the
-in-process cosign keychain and the shelled-out `docker pull` read it — `ProtectHome=yes` hides
-`~/.docker`, so a plain `docker login` is invisible to the agent. The token needs `read:packages`.
+**Pulling a private image.** The agent is a separate machine with no GitHub identity of its own, so
+to read a private image's cosign `.sig` at *verify* and pull it at *pull* it needs a registry
+credential. Rather than store one on the server, the **Action forwards the run's short-lived token**
+(the same `GITHUB_TOKEN` it pushes with) inside the deploy envelope — alongside, **not inside**, the
+signed payload. The agent uses it in memory for that one deploy's verify + pull (a throwaway
+`DOCKER_CONFIG` for the `docker pull` child, in-process `RegistryClientOpts` for cosign) and discards
+it; it is never logged, audited, or persisted. It is a transient **capability, not a trust anchor**:
+integrity comes from the cosign verify + digest pinning, so a wrong/absent token can only make the
+pull fail, never substitute an image. Nothing is stored on the server, and the token auto-rotates
+every run (it expires when the job ends). Needs `packages: write` (which implies read) in the
+workflow `permissions`. A public image sends no token.
 
 ## 7. Server-side anchors (`statio app add`)
 

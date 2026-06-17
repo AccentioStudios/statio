@@ -23,6 +23,19 @@ type Envelope struct {
 	// Bundle is the cosign keyless bundle (signature + cert + transparency proof), opaque
 	// to this package; the verify package interprets it.
 	Bundle json.RawMessage `json:"bundle"`
+	// Registry is an OPTIONAL, short-lived pull credential the CI forwards so the agent (a
+	// separate machine with no GitHub identity) can read a PRIVATE image's cosign .sig and pull
+	// it. It is deliberately OUTSIDE the signed Payload: it is a transient capability, not a trust
+	// anchor (image integrity comes from the cosign verify + digest pinning, so a wrong token only
+	// makes the pull fail — it can never substitute an image). The agent uses it in-memory for one
+	// deploy and discards it; it is NEVER persisted, logged, or audited. Absent for public images.
+	Registry *RegistryAuth `json:"registry,omitempty"`
+}
+
+// RegistryAuth is a username/token pair for one registry, used transiently for a single deploy.
+type RegistryAuth struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 // DecodeEnvelope reads at most MaxEnvelopeBytes from r and strictly decodes the outer

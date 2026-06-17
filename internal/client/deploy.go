@@ -75,7 +75,7 @@ func BuildSpec(in Inputs) ([]byte, error) {
 // ({"base64Signature","cert","rekorBundle"}), which the agent's sigstore-go bundle.Bundle parser
 // rejects with `unknown field "base64Signature"`. The flag emits the protobuf Sigstore bundle
 // (application/vnd.dev.sigstore.bundle) that bundle.Bundle.UnmarshalJSON expects.
-func SignAndWrap(ctx context.Context, payload []byte) ([]byte, error) {
+func SignAndWrap(ctx context.Context, payload []byte, reg *spec.RegistryAuth) ([]byte, error) {
 	tmp, err := os.MkdirTemp("", "statio-sign")
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func SignAndWrap(ctx context.Context, payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read signature bundle: %w", err)
 	}
-	env := spec.Envelope{Payload: payload, Bundle: json.RawMessage(bundle)}
+	env := spec.Envelope{Payload: payload, Bundle: json.RawMessage(bundle), Registry: reg}
 	return json.Marshal(env)
 }
 

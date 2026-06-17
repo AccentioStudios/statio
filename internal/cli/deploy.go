@@ -11,9 +11,25 @@ import (
 
 	"github.com/accentiostudios/statio/internal/client"
 	"github.com/accentiostudios/statio/internal/deploy"
+	"github.com/accentiostudios/statio/internal/spec"
 	"github.com/accentiostudios/statio/internal/statiofile"
 	"github.com/spf13/cobra"
 )
+
+// registryAuthFromEnv reads the registry pull credential the Action forwards via env (never argv):
+// STATIO_REGISTRY_USERNAME (defaults to the GitHub actor) + STATIO_REGISTRY_PASSWORD (the run's
+// GITHUB_TOKEN). Returns nil when no password is set — the image is public and no auth is sent.
+func registryAuthFromEnv() *spec.RegistryAuth {
+	pass := os.Getenv("STATIO_REGISTRY_PASSWORD")
+	if pass == "" {
+		return nil
+	}
+	user := os.Getenv("STATIO_REGISTRY_USERNAME")
+	if user == "" {
+		user = "x-access-token" // GHCR accepts any non-empty username with a valid token
+	}
+	return &spec.RegistryAuth{Username: user, Password: pass}
+}
 
 func newDeployCmd() *cobra.Command {
 	var (
@@ -74,7 +90,10 @@ func newDeployCmd() *cobra.Command {
 
 			ctx, cancel := context.WithTimeout(context.Background(), timeout+60*time.Second)
 			defer cancel()
-			envelope, err := client.SignAndWrap(ctx, payload)
+			// Forward a short-lived registry pull credential to the agent (it has no GitHub identity
+			// of its own). Sourced from env, NEVER argv: the Action sets STATIO_REGISTRY_PASSWORD from
+			// ${{ github.token }} (same token build-sign.sh logs into GHCR with). Absent → public image.
+			envelope, err := client.SignAndWrap(ctx, payload, registryAuthFromEnv())
 			if err != nil {
 				return err
 			}

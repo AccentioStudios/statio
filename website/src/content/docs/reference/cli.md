@@ -19,7 +19,6 @@ statio app add [name]       # wizard: accept an app — image repo, signer ident
 statio app list             # list apps; pick one to view its config + setup steps, or edit it
 statio app edit <name>      # re-run the wizard (current values pre-filled) to change an app
 statio app rm <name>        # stop accepting an app's deploys
-statio registry login [host] # store the agent's pull credential for a PRIVATE image (default ghcr.io)
 statio env set <svc> KEY=VALUE [--protected] [--required]
 statio env set <svc> KEY --secret-stdin          # ops secret via stdin
 statio env list <svc>
@@ -45,16 +44,13 @@ pick an app and then view its config (with the workflow snippet and secrets) or 
 edit it. In CI/scripts they accept flags and secrets via `--*-stdin`; the
 Action uses the flag form automatically. (`statio enable` is a deprecated alias of `statio app add`.)
 
-### Private images (`statio registry login`)
+### Private images
 
-The agent runs on a separate machine with **no GitHub identity**, so for a **private** image it needs
-its own read-only registry credential to read the image's cosign signature *and* pull it. `app add`
-offers to set this up from your `gh` login when it detects a private repo; `statio registry login
-ghcr.io` does it (and rotates it) on demand. It writes `/etc/statio/docker/config.json`, which the
-agent reads via `DOCKER_CONFIG` — its systemd sandbox hides `~/.docker`, so a plain `docker login`
-would **not** be visible to it. The `gh` token must carry `read:packages` (`gh auth refresh -s
-read:packages`). For a non-GHCR registry: `--from-gh=false --username <u>` with the token in the
-`STATIO_REGISTRY_TOKEN` env var (never on argv).
+Nothing to configure on the server. The agent has **no GitHub identity**, so the Action forwards the
+run's short-lived token (the same `GITHUB_TOKEN` it pushes with) inside the signed deploy; the agent
+uses it only to read the image's cosign signature and pull it, in memory, then discards it. Keep
+`packages: write` in the workflow `permissions`. The token is per-run and expires when the job ends —
+no credential is ever stored on the server.
 
 ## Checking a running agent
 
@@ -76,14 +72,13 @@ Two different checks, for two different places:
   (so the new binary takes effect immediately). `--no-restart` skips that; `--check` only reports
   whether a newer version exists.
 - `statio doctor` checks your environment: binary version vs latest, Docker
-  **and whether it's logged in to a registry**, git, gh **and whether it's logged in**, cosign (only
+  daemon, git, gh **and whether it's logged in**, cosign (only
   relevant in CI), the agent config **and the secret files it references**, the **state dir** and the
   service, and GitHub reachability. It runs the *same secret-file check the agent runs at boot*, so a
   missing or world-readable secret is caught here instead of as a silent crash-loop — and when the
   service is down it prints the agent's last log line (read as root) so you see *why*. On a server run
-  it with **`sudo statio doctor`** for the full picture — the config, the secret files, the agent's
-  registry credential and the service all need root, while the gh check is still done as the user you
-  sudo from. `statio doctor --fix` resolves what it safely can on its own (create a missing state dir,
+  it with **`sudo statio doctor`** for the full picture — the config, the secret files and the service
+  all need root, while the gh check is still done as the user you sudo from. `statio doctor --fix` resolves what it safely can on its own (create a missing state dir,
   tighten a loose secret's perms, restart a crash-looping agent) and tells you which remaining fixes
   need a `sudo` re-run. A *missing* secret it can't fabricate — it points you at the `init` step that
   regenerates it.

@@ -109,12 +109,11 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 				ictx, cancel := context.WithTimeout(c.Context(), 12*time.Second)
 				ri := inspectGitHubRepo(ictx, owner, repo)
 				cancel()
-				repoPrivate := false
 				switch {
 				case ri.Known && ri.Private:
-					repoPrivate = true
 					okLine("Repo %s/%s: PRIVATE (via %s), default branch %q", owner, repo, ri.Source, ri.DefaultBranch)
-					info("Private image → the agent needs a pull credential (set up after the image step below).")
+					info("Private image → the CI forwards a short-lived pull token with each deploy; the agent")
+					info("needs no stored credential. Just grant `packages: write` in the workflow permissions.")
 				case ri.Known:
 					okLine("Repo %s/%s: PUBLIC, default branch %q", owner, repo, ri.DefaultBranch)
 				default:
@@ -164,28 +163,6 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 						"Where your CI pushes the image (needn't exist yet). E.g. docker.io/your-org/api",
 						"ghcr.io/your-org/api", &image, true)); err != nil {
 						return err
-					}
-				}
-
-				// 3b. PRIVATE image → the agent (a separate machine, no GitHub identity) needs its own
-				//     pull credential to read the cosign .sig and pull the image. For GHCR we can mint it
-				//     from the local gh login; offer it now so the deploy doesn't 500 at verify later.
-				if repoPrivate && registryHostFromImage(image) == "ghcr.io" {
-					provision, err := confirm("Private image — store the agent's GHCR pull credential now (from your gh login)?")
-					if err != nil {
-						return err
-					}
-					if provision {
-						if ok, perr := provisionGHCRFromGH(c.Context(), servicesDir, "ghcr.io"); perr != nil {
-							warnLine("Couldn't provision it automatically: %v", perr)
-							info("Set it later with: sudo statio registry login ghcr.io")
-							info("(needs gh logged in here with read:packages — `gh auth refresh -s read:packages`)")
-						} else if ok {
-							okLine("Stored the agent's GHCR pull credential under %s", dockerCfgDir(servicesDir))
-							info("If pulls 401, the gh token lacks read:packages — `gh auth refresh -s read:packages`, then `statio registry login`")
-						}
-					} else {
-						info("Skipped. Set it before deploying: sudo statio registry login ghcr.io")
 					}
 				}
 

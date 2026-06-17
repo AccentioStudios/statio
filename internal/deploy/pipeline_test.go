@@ -18,14 +18,14 @@ type fakeVerifier struct {
 	called bool
 }
 
-func (f *fakeVerifier) Verify(ctx context.Context, repo, digest string, s EffectiveSigner) error {
+func (f *fakeVerifier) Verify(ctx context.Context, repo, digest string, s EffectiveSigner, auth *spec.RegistryAuth) error {
 	f.called = true
 	return f.err
 }
 
 type fakePuller struct{ called bool }
 
-func (f *fakePuller) Pull(ctx context.Context, ref string) (string, error) {
+func (f *fakePuller) Pull(ctx context.Context, ref string, auth *spec.RegistryAuth) (string, error) {
 	f.called = true
 	return ref[strings.Index(ref, "@")+1:], nil // resolved digest
 }

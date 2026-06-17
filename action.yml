@@ -113,4 +113,11 @@ runs:
         STATIO_DEPLOY_SEQ: ${{ github.run_number }}
         STATIO_TIMEOUT: ${{ inputs.timeout }}
         STATIO_STRICT: ${{ inputs.strict }}
+        # The agent has no GitHub identity of its own, so for a PRIVATE image we forward the run's
+        # short-lived token (the same one build-sign.sh logs into GHCR with). statio embeds it in the
+        # envelope; the agent uses it to read the cosign .sig and pull, then discards it. GitHub masks
+        # github.token in logs, and it expires when the job ends. Needs `packages: read` (implied by
+        # the `packages: write` the build already requires).
+        STATIO_REGISTRY_USERNAME: ${{ inputs.registry-username || github.actor }}
+        STATIO_REGISTRY_PASSWORD: ${{ inputs.registry-password || github.token }}
       run: ${{ github.action_path }}/action/deploy.sh

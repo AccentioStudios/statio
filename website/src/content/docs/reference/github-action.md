@@ -31,6 +31,12 @@ Your job **must** grant `permissions: id-token: write` (keyless cosign), `packag
 GHCR) and `contents: read`. Without `id-token: write` the agent rejects the deploy.
 :::
 
+:::note
+**Private image?** `packages: write` also covers it: the action forwards the run's short-lived token
+with the deploy so the agent (which has no GitHub identity) can read the image's cosign signature and
+pull it, then discards it. No server-side credential, nothing to configure.
+:::
+
 Already build the image in your own steps? Pass `digest: ${{ steps.build.outputs.digest }}` and the
 action **skips building** (it still signs + deploys). Add `sign: false` if you also sign it yourself.
 
