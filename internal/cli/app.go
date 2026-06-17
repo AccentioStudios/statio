@@ -491,7 +491,8 @@ func showAppDetails(servicesDir, stateDir, actionRef, name string) error {
 }
 
 // editAppInteractive re-runs the wizard for an accepted app with its current values pre-filled,
-// and rewrites the manifest. Shared by `app edit` and `app list` → Edit.
+// and rewrites the manifest. The app can also be renamed (the service dir is moved, preserving its
+// secrets). Shared by `app edit` and `app list` → Edit.
 func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
 	if !interactive() {
 		return fmt.Errorf("app edit is interactive; run it in a terminal")
@@ -501,6 +502,17 @@ func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
 		return err
 	}
 	banner("statio · app edit", fmt.Sprintf("Edit %s — current values are pre-filled; change what you need", name))
+
+	// Allow renaming the slot (validated like any service name). The rename itself is applied
+	// below, just before writing — after a warning + confirm.
+	newName := name
+	if err := runForm(serviceNameField(
+		"App name",
+		"Rename the slot, or keep it. If changed, your workflow `service:` and statio.yaml `name:` must match the new value.",
+		name, &newName)); err != nil {
+		return err
+	}
+	newName = strings.TrimSpace(newName)
 
 	issuer := seed.issuer
 	if issuer == "" {
@@ -569,6 +581,30 @@ func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
 		proxySuffixes, dnsSuffixes, upstreams = []string{suffix}, []string{suffix}, []string{upstream}
 	} else {
 		proxySuffixes, dnsSuffixes, upstreams = nil, nil, nil
+	}
+
+	// Apply a rename by moving the whole service dir, which preserves env secrets under
+	// <dir>/secrets/. Refuse to clobber a different app; warn + confirm because the old slot
+	// stops being accepted and the repo's service:/name: must be updated to match.
+	if newName != name {
+		newDir := filepath.Join(servicesDir, newName)
+		if _, err := os.Stat(newDir); err == nil {
+			return fmt.Errorf("can't rename to %q: an app with that name already exists", newName)
+		}
+		warnLine("Renaming %q → %q changes the deploy slot:", name, newName)
+		info("  • update your workflow `service: %s` and statio.yaml `name: %s` to match", newName, newName)
+		info("  • the old name %q stops being accepted", name)
+		info("  • env set with `statio env` moves with it; GitHub secrets/vars are unaffected")
+		ok, err := confirm("Proceed with the rename?")
+		if err != nil {
+			return err
+		}
+		if ok {
+			if err := os.Rename(filepath.Join(servicesDir, name), newDir); err != nil {
+				return fmt.Errorf("rename app dir: %w", err)
+			}
+			name = newName
+		}
 	}
 
 	path, err := writeAppManifest(servicesDir, appManifest{
