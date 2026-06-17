@@ -118,6 +118,17 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 				default:
 					warnLine("Couldn't auto-detect the repo: %s", ri.Note)
 				}
+				// Pin GitHub's EXACT owner/repo casing: the cosign identity in the OIDC cert uses it
+				// (e.g. AccentioStudios), and verify is case-sensitive — a lowercased name the user
+				// typed would 403 every deploy. The image path stays lowercased (ghcrImage handles it).
+				if ri.Known && ri.FullName != "" {
+					if co, cr, err := parseOwnerRepo(ri.FullName); err == nil {
+						if co != owner || cr != repo {
+							info("Using GitHub's exact casing %s/%s (cosign verify is case-sensitive)", co, cr)
+						}
+						owner, repo = co, cr
+					}
+				}
 				if branch == "" {
 					if branch = ri.DefaultBranch; branch == "" {
 						branch = "main"

@@ -19,6 +19,7 @@ type repoInfo struct {
 	Known         bool   // did we successfully read the repo?
 	Private       bool   // visibility, when Known
 	DefaultBranch string // e.g. "main", when Known
+	FullName      string // canonical "Owner/Repo" casing from GitHub, when Known
 	Source        string // "public" (unauth API) or "gh" (authenticated CLI)
 	GHInstalled   bool   // was the gh CLI found on PATH?
 	Note          string // user-facing hint when Known is false
@@ -63,11 +64,12 @@ func ghPublicRepo(ctx context.Context, owner, repo string) (repoInfo, bool) {
 	var out struct {
 		Private       bool   `json:"private"`
 		DefaultBranch string `json:"default_branch"`
+		FullName      string `json:"full_name"`
 	}
 	if json.Unmarshal(body, &out) != nil {
 		return repoInfo{}, false
 	}
-	return repoInfo{Known: true, Private: out.Private, DefaultBranch: out.DefaultBranch, Source: "public", GHInstalled: true}, true
+	return repoInfo{Known: true, Private: out.Private, DefaultBranch: out.DefaultBranch, FullName: out.FullName, Source: "public", GHInstalled: true}, true
 }
 
 // ghCommand builds a gh invocation that uses the right login. `app add` runs under sudo (root),
@@ -94,11 +96,12 @@ func ghCLIRepo(ctx context.Context, owner, repo string) (repoInfo, bool) {
 	var o struct {
 		Private       bool   `json:"private"`
 		DefaultBranch string `json:"default_branch"`
+		FullName      string `json:"full_name"`
 	}
 	if json.Unmarshal(out, &o) != nil {
 		return repoInfo{}, false
 	}
-	return repoInfo{Known: true, Private: o.Private, DefaultBranch: o.DefaultBranch, Source: "gh", GHInstalled: true}, true
+	return repoInfo{Known: true, Private: o.Private, DefaultBranch: o.DefaultBranch, FullName: o.FullName, Source: "gh", GHInstalled: true}, true
 }
 
 // ghcrImage returns the GitHub Container Registry path for owner/repo. GHCR requires the path to

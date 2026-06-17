@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -132,6 +134,9 @@ func collectEnv(flags []string) (map[string]string, error) {
 
 func printResult(res *deploy.Result, status int) {
 	fmt.Printf("state=%s http=%d digest=%s\n", res.State, status, res.Digest)
+	if res.Error != "" {
+		fmt.Printf("  agent: %s\n", res.Error)
+	}
 	for _, s := range res.Stages {
 		mark := "✓"
 		switch s.Status {
@@ -166,7 +171,58 @@ func exitForResult(res *deploy.Result, status int, strict bool) error {
 			return fmt.Errorf("deploy degraded (--strict)")
 		}
 		return nil
+	}
+	// Failure. Lead with the agent's own reason (its {"error":…} body, or the failed stage), then
+	// a status-specific hint — never a bare "state= http=403".
+	reason := res.Error
+	if reason == "" {
+		if s := firstFailedStage(res); s != nil {
+			reason = strings.TrimSpace(s.Stage + " " + s.Code + ": " + s.Message)
+		}
+	}
+	if reason == "" {
+		reason = fmt.Sprintf("state %q", res.State)
+	}
+	msg := fmt.Sprintf("deploy rejected by the agent (HTTP %d): %s", status, reason)
+	if hint := deployFailureHint(status); hint != "" {
+		msg += "\n  hint: " + hint
+	}
+	return errors.New(msg)
+}
+
+func firstFailedStage(res *deploy.Result) *deploy.StageStatus {
+	for i := range res.Stages {
+		if res.Stages[i].Status == "failed" || res.Stages[i].Status == "unhealthy" {
+			return &res.Stages[i]
+		}
+	}
+	return nil
+}
+
+// deployFailureHint turns the agent's HTTP status into an actionable next step.
+func deployFailureHint(status int) string {
+	switch status {
+	case http.StatusForbidden: // 403
+		return "the agent rejected the signature. The cosign signer pinned by `statio app add` must " +
+			"match your workflow's signing identity EXACTLY — owner/repo is case-sensitive " +
+			"(e.g. AccentioStudios, not accentiostudios), plus the workflow file and branch. " +
+			"Check it with `statio app list` and fix it with `statio app edit <service>`. " +
+			"(Other 403 causes: the deploy's audience ≠ the agent host, or an expired/replayed payload.)"
+	case http.StatusNotFound: // 404
+		return "that service isn't accepted on the server — run `sudo statio app add <service>`. " +
+			"The name must match `service:` in the workflow AND `name:` in statio.yaml."
+	case http.StatusConflict: // 409
+		return "replayed/old deploy sequence — this payload is older than one already applied."
+	case http.StatusRequestEntityTooLarge: // 413
+		return "the payload is too large — check your statio.yaml isn't enormous."
+	case http.StatusUnprocessableEntity: // 422
+		return "an env value was rejected (a protected key, or a required value missing)."
+	case http.StatusBadRequest: // 400
+		return "the deploy spec was rejected — check your statio.yaml and the action inputs."
 	default:
-		return fmt.Errorf("deploy failed: state=%s http=%d", res.State, status)
+		if status >= 500 {
+			return "the agent errored — check `sudo journalctl -u statio-agent` on the server."
+		}
+		return ""
 	}
 }

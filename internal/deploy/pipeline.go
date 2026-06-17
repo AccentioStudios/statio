@@ -72,6 +72,10 @@ type Result struct {
 	Digest       string        `json:"digest"`
 	RolledBackTo string        `json:"rolled_back_to,omitempty"`
 	Stages       []StageStatus `json:"stages"`
+	// Error is set by the agent's early rejections (e.g. a 403 before the pipeline runs), which
+	// return {"error": "..."} with no state/stages. The client surfaces it so the operator sees
+	// WHY the agent refused instead of a bare HTTP status.
+	Error string `json:"error,omitempty"`
 }
 
 func (r *Result) stage(stage, status, message string) {
