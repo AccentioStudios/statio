@@ -10,6 +10,7 @@ import (
 
 	"github.com/accentiostudios/statio/internal/deploy"
 	"github.com/accentiostudios/statio/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/spec"
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 )
@@ -191,7 +192,7 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 				return fmt.Errorf("missing app name (e.g. statio app add api)")
 			}
 			if !validServiceName(name) {
-				return fmt.Errorf("invalid app name %q", name)
+				return fmt.Errorf("invalid app name %q: use lowercase letters, digits and dashes, start with a letter, max 31 chars — no underscores (e.g. %s)", name, strings.ReplaceAll(name, "_", "-"))
 			}
 			if image == "" {
 				return fmt.Errorf("--image (your image repo) is required")
@@ -347,9 +348,9 @@ func newAppRmCmd() *cobra.Command {
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
-			if !validServiceName(name) {
-				return fmt.Errorf("invalid app name %q", name)
-			}
+			// No name-format check here: rm must be able to remove a legacy app whose name would
+			// no longer pass `app add` (e.g. one accepted before the rule was tightened). The
+			// manifest-exists check below is the real guard.
 			dir := filepath.Join(servicesDir, name)
 			if _, err := os.Stat(filepath.Join(dir, "manifest.yaml")); err != nil {
 				return fmt.Errorf("app %q is not accepted", name)
@@ -660,21 +661,10 @@ func splitCSV(s string) []string {
 	return out
 }
 
-func validServiceName(s string) bool {
-	if s == "" || len(s) > 64 {
-		return false
-	}
-	for i, r := range s {
-		isAlnum := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
-		if i == 0 && !isAlnum {
-			return false
-		}
-		if !isAlnum && r != '-' && r != '_' {
-			return false
-		}
-	}
-	return true
-}
+// validServiceName delegates to the spec's rule so `app add` rejects exactly what a deploy would
+// (a DNS-label-safe name: lowercase letter then [a-z0-9-], ≤31 chars, no underscores). Keeping
+// these in lockstep prevents accepting an app name that later fails every deploy.
+func validServiceName(s string) bool { return spec.ValidServiceName(s) }
 
 func writeList(b *strings.Builder, key string, items []string) {
 	if len(items) == 0 {

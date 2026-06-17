@@ -19,6 +19,12 @@ const (
 	MaxHealthPathLen  = 512
 )
 
+// ValidServiceName reports whether s is a valid statio service name: a DNS-label-safe token (a
+// lowercase letter followed by up to 30 of [a-z0-9-], no underscores). Exported so the CLI
+// (`statio app add`) rejects at accept time exactly what a deploy would reject at spec-validation
+// time — keeping the two in lockstep instead of drifting.
+func ValidServiceName(s string) bool { return svcNameRe.MatchString(s) }
+
 var (
 	svcNameRe    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 	volNameRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,40}$`)
