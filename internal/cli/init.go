@@ -56,6 +56,19 @@ func inputField(title, desc, placeholder string, v *string, required bool) huh.F
 	return in
 }
 
+// serviceNameField validates live against the service-name rule (a DNS-label-safe token: lowercase
+// letter then [a-z0-9-], ≤31 chars, no underscores). Used for the app name and the proxy upstream
+// so the wizard rejects in-place exactly what a deploy would reject later.
+func serviceNameField(title, desc, placeholder string, v *string) huh.Field {
+	return huh.NewInput().Title(title).Description(desc).Placeholder(placeholder).Value(v).
+		Validate(func(s string) error {
+			if !validServiceName(strings.TrimSpace(s)) {
+				return fmt.Errorf("lowercase letters, digits and dashes; start with a letter; max 31; no underscores")
+			}
+			return nil
+		})
+}
+
 func passwordField(title, desc string, v *string) huh.Field {
 	return huh.NewInput().Title(title).Description(desc).EchoMode(huh.EchoModePassword).Value(v).
 		Validate(func(s string) error {

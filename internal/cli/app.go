@@ -72,7 +72,7 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 			if interactive() && (name == "" || image == "" || identity == "") {
 				banner("statio · app add", "Accept an app: pin its image, its signer repo and its domains")
 				if name == "" {
-					if err := runForm(inputField("App name", "The slot CI deploys to (e.g. api). Letters, numbers, - or _", "api", &name, true)); err != nil {
+					if err := runForm(serviceNameField("App name", "The slot CI deploys to (e.g. api). Lowercase letters, digits and dashes — no underscores.", "api", &name)); err != nil {
 						return err
 					}
 				}
@@ -180,7 +180,7 @@ func newAppAddCmd(use string, _ bool) *cobra.Command {
 					suffix, upstream := "", name
 					if err := runForm(
 						inputField("Allowed domain suffix", "Only domains under this suffix are accepted (anti-hijack). E.g. example.com", "example.com", &suffix, true),
-						inputField("Upstream (target container)", "The service the proxy points to", name, &upstream, true),
+						serviceNameField("Upstream (target container)", "The service the proxy points to (a service name — usually this app).", name, &upstream),
 					); err != nil {
 						return err
 					}
@@ -562,7 +562,7 @@ func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
 		}
 		if err := runForm(
 			inputField("Allowed domain suffix", "Only domains under this suffix are accepted. E.g. example.com", "example.com", &suffix, true),
-			inputField("Upstream (target container)", "The service the proxy points to", name, &upstream, true),
+			serviceNameField("Upstream (target container)", "The service the proxy points to (a service name — usually this app).", name, &upstream),
 		); err != nil {
 			return err
 		}
