@@ -70,6 +70,11 @@ func BuildSpec(in Inputs) ([]byte, error) {
 // SignAndWrap cosign-signs the payload bytes (keyless, via the cosign CLI which is present
 // on the Action runner and picks up the run's ambient OIDC token) and wraps them with the
 // resulting Sigstore bundle into the wire envelope. The SAME bytes are signed and carried.
+//
+// --new-bundle-format is REQUIRED: without it cosign writes the legacy LocalSignedPayload JSON
+// ({"base64Signature","cert","rekorBundle"}), which the agent's sigstore-go bundle.Bundle parser
+// rejects with `unknown field "base64Signature"`. The flag emits the protobuf Sigstore bundle
+// (application/vnd.dev.sigstore.bundle) that bundle.Bundle.UnmarshalJSON expects.
 func SignAndWrap(ctx context.Context, payload []byte) ([]byte, error) {
 	tmp, err := os.MkdirTemp("", "statio-sign")
 	if err != nil {
@@ -81,7 +86,7 @@ func SignAndWrap(ctx context.Context, payload []byte) ([]byte, error) {
 	if err := os.WriteFile(payloadPath, payload, 0o600); err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, "cosign", "sign-blob", "--yes", "--bundle", bundlePath, payloadPath)
+	cmd := exec.CommandContext(ctx, "cosign", "sign-blob", "--yes", "--new-bundle-format", "--bundle", bundlePath, payloadPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("cosign sign-blob failed: %w: %s", err, string(out))
 	}
