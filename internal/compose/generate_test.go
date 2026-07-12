@@ -77,6 +77,79 @@ func TestGenerateNeverEmitsForbiddenKeys(t *testing.T) {
 	}
 }
 
+func TestGenerateAllocatedHostPortOverridesDevDeclared(t *testing.T) {
+	in := Input{
+		Slot: "api", PrimaryRepo: "ghcr.io/org/api", Digest: "sha256:" + strings.Repeat("a", 64),
+		RunDir: "/run/statio/api", AllowedRegistries: []string{"docker.io"},
+		HostPort: 41000, // statio-allocated; must replace the dev's host side, keep container 3000
+		Intent: &spec.AppIntent{Services: []spec.Service{
+			{Name: "api", Ports: []spec.Port{{Container: 3000, Host: 3000, Protocol: "tcp"}}},
+		}},
+	}
+	out := gen(t, in)
+	if !strings.Contains(out, "127.0.0.1:41000:3000") {
+		t.Errorf("expected allocated host port 41000 mapped to container 3000:\n%s", out)
+	}
+	if strings.Contains(out, "127.0.0.1:3000:3000") {
+		t.Errorf("dev-declared host port 3000 should have been overridden:\n%s", out)
+	}
+}
+
+func TestGenerateContainerModeJoinsExternalNetwork(t *testing.T) {
+	// Distinct slot vs service name so the alias assertion proves it's the SLOT, not the service.
+	in := Input{
+		Slot: "myslot", PrimaryRepo: "ghcr.io/org/api", Digest: "sha256:" + strings.Repeat("a", 64),
+		RunDir: "/run/statio/myslot", AllowedRegistries: []string{"docker.io"},
+		HostPort: 41000, Network: "statio-edge",
+		Intent: &spec.AppIntent{Services: []spec.Service{
+			{Name: "app", Ports: []spec.Port{{Container: 3000, Host: 3000, Protocol: "tcp"}}, DependsOn: []string{"db"}},
+			{Name: "db", Image: "postgres:16"},
+		}},
+	}
+	out := gen(t, in)
+	for _, want := range []string{
+		"networks:",      // top-level networks block
+		"statio-edge:",   // the external net is declared
+		"external: true", // referenced, not owned
+		"default: {}",    // app stays on the project default too (so it can reach db)
+		"aliases:",       // app answers on the shared net under an alias
+		"- myslot",       // the alias is the SLOT name (server-pinned, unique), not the service name "app"
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("container-mode compose missing %q:\n%s", want, out)
+		}
+	}
+	// The dependency must NOT join the shared proxy network — only your app is reachable. Bound
+	// the search to the services section so the top-level networks declaration isn't swept in.
+	servicesOnly := out
+	if idx := strings.Index(out, "\nnetworks:"); idx >= 0 {
+		servicesOnly = out[:idx]
+	}
+	dbBlock := servicesOnly[strings.Index(servicesOnly, "db:"):]
+	if strings.Contains(dbBlock, "statio-edge") {
+		t.Errorf("dependency db should not join the shared proxy network:\n%s", out)
+	}
+	// network_mode (the dangerous host/container escape) must still never appear.
+	if strings.Contains(out, "network_mode") {
+		t.Errorf("network_mode must never be emitted:\n%s", out)
+	}
+}
+
+func TestGenerateLoopbackModeNoNetworks(t *testing.T) {
+	in := Input{
+		Slot: "api", PrimaryRepo: "ghcr.io/org/api", Digest: "sha256:" + strings.Repeat("a", 64),
+		RunDir: "/run/statio/api", AllowedRegistries: []string{"docker.io"},
+		HostPort: 41000, // loopback mode: no Network set
+		Intent: &spec.AppIntent{Services: []spec.Service{
+			{Name: "api", Ports: []spec.Port{{Container: 3000, Host: 3000, Protocol: "tcp"}}},
+		}},
+	}
+	out := gen(t, in)
+	if strings.Contains(out, "networks:") {
+		t.Errorf("loopback mode must not emit any networks block:\n%s", out)
+	}
+}
+
 func TestGenerateRejectsDisallowedRegistry(t *testing.T) {
 	in := Input{
 		Slot: "api", PrimaryRepo: "ghcr.io/org/api", Digest: "sha256:" + strings.Repeat("a", 64),

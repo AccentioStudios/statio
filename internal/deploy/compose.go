@@ -112,6 +112,28 @@ func readRunSet(dir string) (RunSet, error) {
 	return rs, nil
 }
 
+// dockerPortPublishers returns the compose project names of containers currently publishing
+// hostPort, via `docker ps`, and whether docker actually answered. Preflight uses it to tell a
+// slot's OWN running container (a redeploy, which legitimately holds the port — its compose
+// project equals the slot name) apart from a foreign process squatting it. ok=false means docker
+// was unavailable (binary missing, daemon down, or `docker ps` timed out), so the caller cannot
+// attribute the holder and should warn rather than declare a conflict — otherwise a transient
+// docker hiccup would fail a perfectly legitimate redeploy's preflight.
+func dockerPortPublishers(ctx context.Context, hostPort int) (projects []string, ok bool) {
+	out, err := exec.CommandContext(ctx, "docker", "ps",
+		"--filter", fmt.Sprintf("publish=%d", hostPort),
+		"--format", `{{.Label "com.docker.compose.project"}}`).Output()
+	if err != nil {
+		return nil, false
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if p := strings.TrimSpace(line); p != "" {
+			projects = append(projects, p)
+		}
+	}
+	return projects, true
+}
+
 // composeUp recreates the service from the generated compose in dir, via an explicit argv
 // array (never a shell string), with the project pinned to the slot. It is run WITHOUT
 // --env-file: the digest is already baked literally into the compose, so there is no

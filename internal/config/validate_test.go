@@ -77,3 +77,41 @@ func TestValidateCloudflareNeedsIP(t *testing.T) {
 		t.Fatalf("should pass with IP: %v", err)
 	}
 }
+
+func TestValidateUpstreamModeDefaultsLoopback(t *testing.T) {
+	c := valid() // applyDefaults ran
+	if c.NPMplus.UpstreamMode != UpstreamModeLoopback {
+		t.Fatalf("upstream_mode default = %q, want %q", c.NPMplus.UpstreamMode, UpstreamModeLoopback)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("default loopback should pass: %v", err)
+	}
+}
+
+func TestValidateUpstreamModeInvalid(t *testing.T) {
+	c := valid()
+	c.NPMplus.UpstreamMode = "host"
+	if c.Validate() == nil {
+		t.Fatal("expected rejection of an unknown upstream_mode")
+	}
+}
+
+func TestValidateContainerModeNeedsNetwork(t *testing.T) {
+	c := valid()
+	c.NPMplus.UpstreamMode = UpstreamModeContainer
+	if c.Validate() == nil {
+		t.Fatal("expected container mode without a network to be rejected")
+	}
+	c.NPMplus.Network = "statio-edge"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("container mode with a network should pass: %v", err)
+	}
+}
+
+func TestValidateLoopbackRejectsNetwork(t *testing.T) {
+	c := valid()
+	c.NPMplus.Network = "statio-edge" // network with loopback is a config mistake
+	if c.Validate() == nil {
+		t.Fatal("expected loopback+network to be rejected")
+	}
+}

@@ -343,7 +343,7 @@ func listAcceptedApps(servicesDir string) ([]string, error) {
 }
 
 func newAppRmCmd() *cobra.Command {
-	var servicesDir string
+	var servicesDir, stateDir string
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "rm <name>",
@@ -371,13 +371,37 @@ func newAppRmCmd() *cobra.Command {
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}
+			// Return the slot's allocated host port to the pool, so a churned/re-added app never
+			// leaks a port (the registry is the single allocator; without this the pool drains).
+			if err := releaseSlotPort(stateDir, name); err != nil {
+				warnLine("removed the app, but could not free its host port: %v", err)
+			}
 			okLine("App %q removed.", name)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
+	cmd.Flags().StringVar(&stateDir, "state-dir", "/var/lib/statio", "state directory (holds the host-port registry)")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for confirmation")
 	return cmd
+}
+
+// releaseSlotPort frees a removed slot's host-port assignment from the registry. A no-op if the
+// registry or the slot's entry doesn't exist.
+func releaseSlotPort(stateDir, name string) error {
+	path := filepath.Join(stateDir, "ports.json")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	reg, err := deploy.LoadPortRegistry(path)
+	if err != nil {
+		return err
+	}
+	if _, ok := reg.PortFor(name); !ok {
+		return nil
+	}
+	reg.Release(name)
+	return reg.Save(path)
 }
 
 // appManifest is the set of fields `app add` / `app edit` write to a service manifest.

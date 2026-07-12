@@ -131,6 +131,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /deploy", a.handleDeploy)
+	mux.HandleFunc("POST /preflight", a.handlePreflight)
 	mux.HandleFunc("GET /logs/{service}", a.handleLogs)
 	mux.HandleFunc("GET /status", a.handleStatus)
 	mux.HandleFunc("GET /healthz", a.handleHealthz)

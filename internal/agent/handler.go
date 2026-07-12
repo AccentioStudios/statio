@@ -16,63 +16,97 @@ import (
 	"github.com/accentiostudios/statio/internal/spec"
 )
 
-func (a *Agent) handleDeploy(w http.ResponseWriter, r *http.Request) {
-	// 1. Envelope-first, fail-closed: a missing/empty bundle is rejected here (#14).
+// admitted is the verified outcome of the shared signed front door (admitSigned): a trusted
+// request, the deployer built for it, and the resolved signer identity (for the audit record).
+type admitted struct {
+	req            *spec.DeployRequest
+	deployer       *deploy.Deployer
+	signerIdentity string
+}
+
+// admitSigned is the shared front door for /deploy and /preflight. It is envelope-first and
+// fail-closed: decode the envelope (#14), learn WHICH service the still-UNTRUSTED payload targets
+// (naming a service only selects which per-service signer to check — an attacker cannot forge that
+// signature), load its manifest, then verify the cosign bundle over the EXACT payload bytes (#15)
+// before anything is acted on. On any failure it writes the JSON error response and returns ok=false.
+func (a *Agent) admitSigned(w http.ResponseWriter, r *http.Request) (admitted, bool) {
 	env, err := spec.DecodeEnvelope(r.Body)
 	if err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
-		return
+		return admitted{}, false
 	}
-	// 2. Decode the payload to learn WHICH service it targets — still UNTRUSTED at this point.
-	//    Reading the service name only selects which per-service signer to verify against; an
-	//    attacker can NAME a service but cannot forge that service's signature. The exact same
-	//    bytes are verified in step 4, so byte-equality holds (#15) and nothing is acted on yet.
 	req, err := spec.DecodeBytes(env.Payload)
 	if err != nil {
 		writeJSON(w, statusForError(err), map[string]string{"error": err.Error()})
-		return
+		return admitted{}, false
 	}
 	svcDir := filepath.Join(a.cfg.ServicesDir, req.Service)
 	if fi, err := os.Stat(svcDir); err != nil || !fi.IsDir() {
 		// No auto-provision: a signed payload can only target an already-accepted service (#18).
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown service"})
-		return
+		return admitted{}, false
 	}
 	m, err := deploy.LoadManifest(svcDir)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "service misconfigured"})
-		return
+		return admitted{}, false
 	}
-	// 3. Resolve THIS service's signer (per-service manifest override, else the optional global).
-	//    This is what lets one server accept deploys from many different repos/orgs.
+	// Resolve THIS service's signer (per-service manifest override, else the optional global) —
+	// what lets one server accept deploys from many different repos/orgs — and verify against it.
+	// Empty identity fails closed in VerifyBlob. After this passes, `req` is trusted.
 	signer := m.EffectiveSigner(a.cfg.Cosign.OIDCIssuer, a.cfg.Cosign.Identity, a.cfg.Cosign.IdentityRegexp)
-	// 4. Verify the cosign bundle over the EXACT payload bytes against that signer, BEFORE any
-	//    effect (#15/#16). Empty identity fails closed in VerifyBlob. After this passes, `req`
-	//    (decoded from the same verified bytes) is trusted.
 	if err := a.verifier.VerifyBlob(r.Context(), env.Payload, env.Bundle, signer); err != nil {
 		a.log.Warn("payload signature rejected", "service", req.Service, "err", err)
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "payload signature verification failed"})
-		return
+		return admitted{}, false
 	}
 	// The optional registry credential rides on the envelope (not the signed payload) and is used
 	// transiently for this deploy's verify + pull only — never logged, audited, or persisted.
 	d, err := a.buildDeployer(m, env.Registry)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "agent misconfigured"})
+		return admitted{}, false
+	}
+	return admitted{req: req, deployer: d, signerIdentity: signer.Identity}, true
+}
+
+func (a *Agent) handleDeploy(w http.ResponseWriter, r *http.Request) {
+	ad, ok := a.admitSigned(w, r)
+	if !ok {
 		return
 	}
 	start := time.Now()
-	res, runErr := d.Run(r.Context(), req)
+	d := ad.deployer
+	res, runErr := d.Run(r.Context(), ad.req)
 	status := http.StatusOK
 	if runErr != nil {
 		status = statusForError(runErr)
 		// The response carries only a sanitized stage message (invariant #23); the RAW error
 		// (e.g. a registry 401 reading the cosign .sig, or "no matching signatures") must reach
 		// the journal or a failed deploy is undiagnosable from the server side.
-		a.log.Warn("deploy pipeline failed", "service", req.Service, "state", res.State, "http", status, "err", runErr)
+		a.log.Warn("deploy pipeline failed", "service", ad.req.Service, "state", res.State, "http", status, "err", runErr)
 	}
-	a.writeAudit(req, res, signer.Identity, callerFrom(r.Context()), time.Since(start))
+	a.writeAudit(ad.req, res, ad.signerIdentity, callerFrom(r.Context()), time.Since(start))
 	writeJSON(w, status, res)
+}
+
+// handlePreflight runs the READ-ONLY dry-run (no pull, recreate, or edge write) over the same
+// signed payload a deploy would carry, so CI can fail fast and cheap on a misconfiguration. It
+// shares the exact admission gate as /deploy (signature verified against the service's signer),
+// so it is no anonymous config-probe oracle. It is NOT audited — it changes nothing.
+func (a *Agent) handlePreflight(w http.ResponseWriter, r *http.Request) {
+	ad, ok := a.admitSigned(w, r)
+	if !ok {
+		return
+	}
+	// A preflight that RAN is a success at the transport level even when it found problems: the
+	// report (res.State + per-stage codes) is the product, and CI decides pass/fail from it (like
+	// deploy's exitForResult). Only the admission gate above returns 4xx. So always 200 here.
+	res, runErr := ad.deployer.Preflight(r.Context(), ad.req)
+	if runErr != nil {
+		a.log.Warn("preflight found a problem", "service", ad.req.Service, "state", res.State, "err", runErr)
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // writeAudit appends a redacted per-deploy record. res.Stages is already sanitized (no

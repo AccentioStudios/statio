@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,9 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/accentiostudios/statio/internal/config"
 	"github.com/accentiostudios/statio/internal/fsutil"
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed assets/*.tmpl
@@ -297,84 +300,247 @@ func writeAgentUnit() error {
 
 // ======================== init integrations =========================
 
+const (
+	npmplusSecretPath    = "/etc/statio/secrets/npmplus.json"
+	cloudflareSecretPath = "/etc/statio/secrets/cloudflare.json"
+)
+
 func newInitIntegrationsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "integrations",
-		Short:   "Configure NPMplus + Cloudflare + the pinned public IP (interactive)",
+		Use:   "integrations",
+		Short: "Configure NPMplus + Cloudflare + the pinned public IP (interactive, idempotent)",
+		Long: "Configures the optional reverse proxy (NPMplus) and DNS (Cloudflare) and writes them\n" +
+			"straight into the agent config — no hand-editing. Re-run it any time to change a single\n" +
+			"detail: it pre-fills every answer with the current value, so you just edit what you need.",
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if !interactive() {
 				return fmt.Errorf("init integrations is interactive; run it in a terminal")
 			}
+			cfg, err := loadConfigForEdit(defaultConfigPath)
+			if err != nil {
+				return fmt.Errorf("this server isn't set up yet — run 'sudo statio init server' first (%w)", err)
+			}
 			banner("statio · init integrations", "Reverse proxy (NPMplus) and DNS (Cloudflare)")
 			info("OPTIONAL. Only needed to auto-expose an app on a PUBLIC domain (TLS via NPMplus + a")
-			info("Cloudflare A record). Your deploys already work without this — skip it if you don't need")
-			info("a public domain or you run a different proxy. Proxy/DNS are best-effort: if they're")
-			info("unreachable a deploy still succeeds (success_degraded) and converges on retry.")
+			info("Cloudflare A record). Your deploys already work without this. Re-run any time to edit a")
+			info("single value — current settings are pre-filled below.")
 
-			doNPM, err := confirm("Set up NPMplus (reverse proxy)? Requires NPMplus already running + a user")
-			if err != nil {
+			if err := configureNPMplus(cfg); err != nil {
 				return err
 			}
-			if doNPM {
-				info("In NPMplus: create a dedicated non-admin user (Users → Add). You'll enter ITS login")
-				info("email + password below. The agent reaches NPMplus over localhost from the host.")
-				url, identity, secret := "http://127.0.0.1:81", "", ""
-				if err := runForm(
-					inputField("NPMplus API URL", "Reachable from THIS host — the agent runs on the host, not in docker, and talks to NPMplus over localhost. The admin/API port (usually 81). E.g. http://127.0.0.1:81", "http://127.0.0.1:81", &url, true),
-					inputField("NPMplus login email", "The email of the dedicated non-admin NPMplus user (this is the API 'identity').", "statio@your-domain.com", &identity, true),
-					passwordField("NPMplus password", "That user's password (the API 'secret'). Stored 0600, root-only.", &secret),
-				); err != nil {
-					return err
-				}
-				if err := writeJSONSecret("/etc/statio/secrets/npmplus.json",
-					fmt.Sprintf(`{"base_url":%q,"identity":%q,"secret":%q}`, url, identity, secret)); err != nil {
-					return err
-				}
-				okLine("NPMplus configured")
-				sectionTitle("Add to /etc/statio/config.yaml")
-				codeBlock("npmplus:", "  base_url: "+url, "  credentials_file: /etc/statio/secrets/npmplus.json")
-			}
-
-			doCF, err := confirm("Set up Cloudflare (DNS)? Lets statio auto-create the public A record")
-			if err != nil {
+			if err := configureCloudflare(cfg); err != nil {
 				return err
 			}
-			if doCF {
-				info("Create a scoped API token at Cloudflare → My Profile → API Tokens → Create Token,")
-				info("with Zone.DNS:Edit on THIS zone only (not a global key). You'll paste it below.")
-				zoneID, apex, ip, token := "", "", "", ""
-				if err := runForm(
-					inputField("Cloudflare Zone ID", "Cloudflare dashboard → your domain → Overview (right column), e.g. 1a2b3c… (a 32-char hex id).", "", &zoneID, true),
-					inputField("Zone apex", "The root domain the zone covers (e.g. example.com).", "example.com", &apex, true),
-					inputField("Server public IP", "The public IPv4 the A records point to — your droplet's public IP.", "203.0.113.10", &ip, true),
-					passwordField("Cloudflare API token", "The scoped token (Zone.DNS:Edit on this zone). Stored 0600, root-only.", &token),
-				); err != nil {
-					return err
-				}
-				if err := writeJSONSecret("/etc/statio/secrets/cloudflare.json",
-					fmt.Sprintf(`{"api_token":%q,"zone_id":%q}`, token, zoneID)); err != nil {
-					return err
-				}
-				okLine("Cloudflare configured")
-				sectionTitle("Add to /etc/statio/config.yaml")
-				codeBlock(
-					"cloudflare:",
-					"  credentials_file: /etc/statio/secrets/cloudflare.json",
-					"  zone_apex: "+apex,
-					"dns:",
-					"  public_ip: "+ip,
-					"  ttl: 1",
-					"  proxied: false",
-				)
+
+			if err := saveConfig(defaultConfigPath, cfg); err != nil {
+				return err
 			}
-			if !doNPM && !doCF {
-				warnLine("Nothing to configure.")
-			}
+			okLine("Wrote %s", defaultConfigPath)
+			info("Restart the agent to apply: sudo systemctl restart statio-agent")
 			return nil
 		},
 	}
 	return cmd
+}
+
+// configureNPMplus runs the (re-runnable) NPMplus section: it pre-fills from the current config +
+// stored secret, asks only what changed, and writes both the secret file and the config fields
+// (base_url, credentials_file, upstream_mode, network). Answering "no" disables NPMplus.
+func configureNPMplus(cfg *config.Config) error {
+	enabled := cfg.NPMplus.BaseURL != ""
+	prompt := "Set up NPMplus (reverse proxy)?"
+	if enabled {
+		prompt = "NPMplus is configured. Keep / edit it?"
+	}
+	doNPM, err := confirm(prompt)
+	if err != nil {
+		return err
+	}
+	if !doNPM {
+		if enabled {
+			warnLine("Disabling NPMplus (the agent will stop reconciling proxy hosts).")
+			cfg.NPMplus = config.NPMplusConfig{UpstreamMode: config.UpstreamModeLoopback}
+		}
+		return nil
+	}
+
+	info("In NPMplus: create a dedicated non-admin user (Users → Add). You'll enter ITS login email")
+	info("+ password below. The agent reaches the NPMplus admin API over localhost from the host.")
+	url, identity, curSecret := readNPMplusSecret(npmplusSecretPath)
+	if url == "" {
+		url = "http://127.0.0.1:81"
+	}
+	secret := ""
+	secretDesc := "That user's password (the API 'secret'). Stored 0600, root-only."
+	if curSecret != "" {
+		secretDesc = "Leave BLANK to keep the current password. " + secretDesc
+	}
+	if err := runForm(
+		inputField("NPMplus admin API URL", "How the AGENT reaches NPMplus (control plane). The agent runs on the host, so this is almost always host loopback: http://127.0.0.1:81", "http://127.0.0.1:81", &url, true),
+		inputField("NPMplus login email", "The dedicated non-admin NPMplus user (the API 'identity').", "statio@your-domain.com", &identity, true),
+		huh.NewInput().Title("NPMplus password").Description(secretDesc).EchoMode(huh.EchoModePassword).Value(&secret),
+	); err != nil {
+		return err
+	}
+	if secret == "" {
+		secret = curSecret // keep existing on a blank answer
+	}
+	if secret == "" {
+		return fmt.Errorf("NPMplus password is required (none stored yet)")
+	}
+
+	// Data-plane topology — how NPMplus reaches your APP. The devops decides; statio supports both.
+	mode := cfg.NPMplus.UpstreamMode
+	if mode == "" {
+		mode = config.UpstreamModeLoopback
+	}
+	if err := huh.NewForm(huh.NewGroup(huh.NewSelect[string]().
+		Title("How does NPMplus reach your app? (data plane)").
+		Description("loopback: NPMplus forwards to 127.0.0.1:<port> (NPMplus on the host network). container: NPMplus and your app share a docker network and it forwards by container name.").
+		Options(
+			huh.NewOption("loopback — over the host (default, simplest)", config.UpstreamModeLoopback),
+			huh.NewOption("container — shared docker network", config.UpstreamModeContainer),
+		).Value(&mode))).WithTheme(huh.ThemeCharm()).Run(); err != nil {
+		return err
+	}
+	network := cfg.NPMplus.Network
+	if mode == config.UpstreamModeContainer {
+		if err := runForm(serviceNameField("Shared docker network",
+			"The docker network NPMplus and your app both join (NPMplus must already be attached). statio adds your app to it. E.g. statio-edge",
+			"statio-edge", &network)); err != nil {
+			return err
+		}
+	} else {
+		network = "" // loopback must not carry a network
+	}
+
+	if err := writeJSONSecret(npmplusSecretPath,
+		fmt.Sprintf(`{"base_url":%q,"identity":%q,"secret":%q}`, url, identity, secret)); err != nil {
+		return err
+	}
+	cfg.NPMplus = config.NPMplusConfig{
+		BaseURL: url, CredentialsFile: npmplusSecretPath,
+		UpstreamMode: mode, Network: network,
+	}
+	okLine("NPMplus configured (%s mode)", mode)
+	return nil
+}
+
+// configureCloudflare runs the (re-runnable) Cloudflare/DNS section, pre-filled from the current
+// config + stored secret. Answering "no" disables DNS.
+func configureCloudflare(cfg *config.Config) error {
+	enabled := cfg.Cloudflare.CredentialsFile != ""
+	prompt := "Set up Cloudflare (DNS)?"
+	if enabled {
+		prompt = "Cloudflare is configured. Keep / edit it?"
+	}
+	doCF, err := confirm(prompt)
+	if err != nil {
+		return err
+	}
+	if !doCF {
+		if enabled {
+			warnLine("Disabling Cloudflare DNS.")
+			cfg.Cloudflare = config.CloudflareConfig{}
+			cfg.DNS = config.DNSConfig{}
+		}
+		return nil
+	}
+	info("Create a scoped API token at Cloudflare → My Profile → API Tokens → Create Token, with")
+	info("Zone.DNS:Edit on THIS zone only (not a global key). You'll paste it below.")
+	curToken, curZoneID := readCloudflareSecret(cloudflareSecretPath)
+	zoneID, apex, ip := curZoneID, cfg.Cloudflare.ZoneApex, cfg.DNS.PublicIP
+	token := ""
+	tokenDesc := "The scoped token (Zone.DNS:Edit). Stored 0600, root-only."
+	if curToken != "" {
+		tokenDesc = "Leave BLANK to keep the current token. " + tokenDesc
+	}
+	if err := runForm(
+		inputField("Cloudflare Zone ID", "Dashboard → your domain → Overview (right column), a 32-char hex id.", "", &zoneID, true),
+		inputField("Zone apex", "The root domain the zone covers (e.g. example.com).", "example.com", &apex, true),
+		inputField("Server public IP", "The public IPv4 the A records point to.", "203.0.113.10", &ip, true),
+		huh.NewInput().Title("Cloudflare API token").Description(tokenDesc).EchoMode(huh.EchoModePassword).Value(&token),
+	); err != nil {
+		return err
+	}
+	if token == "" {
+		token = curToken
+	}
+	if token == "" {
+		return fmt.Errorf("Cloudflare API token is required (none stored yet)")
+	}
+	if err := writeJSONSecret(cloudflareSecretPath,
+		fmt.Sprintf(`{"api_token":%q,"zone_id":%q}`, token, zoneID)); err != nil {
+		return err
+	}
+	cfg.Cloudflare = config.CloudflareConfig{CredentialsFile: cloudflareSecretPath, ZoneApex: apex}
+	if cfg.DNS.TTL == 0 {
+		cfg.DNS.TTL = 1
+	}
+	cfg.DNS.PublicIP = ip
+	okLine("Cloudflare configured")
+	return nil
+}
+
+// loadConfigForEdit reads the agent config WITHOUT applying defaults or validating, so the wizard
+// can round-trip it (pre-fill, edit one field, write back). It preserves every setting statio's
+// config schema models; YAML comments and any hand-added unknown keys are NOT preserved (the
+// round-trip goes through the typed struct), so /etc/statio/config.yaml is managed by statio.
+func loadConfigForEdit(path string) (*config.Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var c config.Config
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	// Defaults are normally applied by config.Load at boot; apply the one that affects validation
+	// here so a pre-feature config (no upstream_mode) round-trips and validates cleanly.
+	if c.NPMplus.UpstreamMode == "" {
+		c.NPMplus.UpstreamMode = config.UpstreamModeLoopback
+	}
+	return &c, nil
+}
+
+// saveConfig validates the edited config (fail-closed, the same checks the agent runs at boot) and
+// writes it back 0600 root. Validating here means a bad combination (e.g. container mode without a
+// network) is caught in the wizard, not at the next agent restart.
+func saveConfig(path string, c *config.Config) error {
+	if err := c.Validate(); err != nil {
+		return fmt.Errorf("refusing to write an invalid config: %w", err)
+	}
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return fsutil.SecureWrite(path, data, 0o600)
+}
+
+// readNPMplusSecret best-effort reads the stored NPMplus credential to pre-fill the wizard. The
+// secret (password) is returned so a blank answer can keep it; it is never displayed.
+func readNPMplusSecret(path string) (url, identity, secret string) {
+	var s struct {
+		BaseURL  string `json:"base_url"`
+		Identity string `json:"identity"`
+		Secret   string `json:"secret"`
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &s)
+	}
+	return s.BaseURL, s.Identity, s.Secret
+}
+
+func readCloudflareSecret(path string) (token, zoneID string) {
+	var s struct {
+		APIToken string `json:"api_token"`
+		ZoneID   string `json:"zone_id"`
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &s)
+	}
+	return s.APIToken, s.ZoneID
 }
 
 func writeJSONSecret(path, json string) error {

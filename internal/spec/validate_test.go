@@ -116,6 +116,13 @@ func TestValidateProxy(t *testing.T) {
 	if r.Validate() == nil {
 		t.Error("expected invalid domain rejection")
 	}
+	// Domain-only proxy is valid: the agent resolves the forward target server-side, so
+	// upstream_host/upstream_port may be omitted (0/"").
+	r = mustReq(t)
+	r.Proxy = &ProxySpec{Enabled: true, Domain: "api.example.com", Scheme: "http"}
+	if err := r.Validate(); err != nil {
+		t.Errorf("domain-only proxy should be valid: %v", err)
+	}
 }
 
 func TestValidateService(t *testing.T) {

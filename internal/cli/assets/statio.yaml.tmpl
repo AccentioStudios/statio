@@ -3,7 +3,7 @@
 # names and provide the VALUES from GitHub Secrets via the workflow's `env:` input.
 services:
   - name: {{.Service}}            # your app: no `image:` → the signed digest is injected
-    ports: [3000]                 # → published on 127.0.0.1:3000 only
+    ports: [3000]                 # the port your app LISTENS on; statio picks the host port
     env: [DATABASE_URL]           # value comes from ${{ secrets.DATABASE_URL }}
     env_inline:                   # non-secret config (committed here)
       NODE_ENV: production
@@ -17,10 +17,10 @@ services:
   #   volumes:
   #     - { name: pgdata, path: /var/lib/postgresql/data }
 
-# Optional edge (the agent wires NPMplus + Cloudflare with its own creds):
+# Optional public domain. The agent wires NPMplus + Cloudflare with its OWN creds and resolves
+# the forward target itself (host loopback port, or your app's container name — set on the server
+# with `statio init integrations`), so you only declare the domain:
 # proxy:
 #   domain: {{.Service}}.example.com
-#   upstream: {{.Service}}
-#   upstream_port: 3000
 # dns:
 #   domain: {{.Service}}.example.com

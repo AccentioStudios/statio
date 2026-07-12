@@ -50,6 +50,7 @@ func Execute(version string) error {
 		}),
 		grouped("internal", newAgentCmd()),
 		grouped("internal", newDeployCmd()),
+		grouped("internal", newPreflightCmd()),
 	)
 	return root.Execute()
 }
@@ -58,7 +59,7 @@ func Execute(version string) error {
 // long-running/non-interactive (agent, deploy) or already version-aware
 // (version, upgrade, doctor).
 var noNudge = map[string]bool{
-	"agent": true, "deploy": true, "version": true, "upgrade": true, "doctor": true,
+	"agent": true, "deploy": true, "preflight": true, "version": true, "upgrade": true, "doctor": true,
 }
 
 func maybeNudgeUpdate(c *cobra.Command, current string) {

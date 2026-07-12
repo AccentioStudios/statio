@@ -107,10 +107,23 @@ func ValidateSpecJSON(body []byte) error {
 // Deploy POSTs the spec to https://<target>/deploy and returns the typed result. A
 // non-2xx with a JSON body is still decoded so the caller can surface per-stage status.
 func Deploy(ctx context.Context, target string, body []byte, timeout time.Duration) (*deploy.Result, int, error) {
+	return post(ctx, target, "/deploy", body, timeout)
+}
+
+// Preflight POSTs the SAME signed payload to https://<target>/preflight and returns the typed
+// dry-run report. The agent runs read-only checks (port availability, proxy/DNS readiness) and
+// mutates nothing, so CI can fail fast and cheap on a misconfiguration before the real deploy.
+func Preflight(ctx context.Context, target string, body []byte, timeout time.Duration) (*deploy.Result, int, error) {
+	return post(ctx, target, "/preflight", body, timeout)
+}
+
+// post sends a signed envelope to one agent path and decodes the typed Result. A non-2xx with a
+// JSON body is still decoded so the caller can surface the agent's own reason / per-stage status.
+func post(ctx context.Context, target, path string, body []byte, timeout time.Duration) (*deploy.Result, int, error) {
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}
-	url := fmt.Sprintf("https://%s/deploy", target)
+	url := fmt.Sprintf("https://%s%s", target, path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, err
@@ -119,7 +132,7 @@ func Deploy(ctx context.Context, target string, body []byte, timeout time.Durati
 	hc := &http.Client{Timeout: timeout}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("deploy request to %s failed: %w", target, err)
+		return nil, 0, fmt.Errorf("request to %s%s failed: %w", target, path, err)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

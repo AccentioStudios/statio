@@ -51,10 +51,33 @@ type CosignConfig struct {
 
 // NPMplusConfig is optional. When BaseURL is empty, reverse-proxy reconciliation is
 // disabled (internal-only services).
+//
+// Two planes, intentionally separate (statio keeps everything inside the server):
+//   - CONTROL plane: how the AGENT reaches the NPMplus admin API. The agent runs on the host
+//     (not in a container), so this is almost always host loopback (http://127.0.0.1:81).
+//     -> BaseURL.
+//   - DATA plane: how NPMplus reaches YOUR app. The devops decides the topology, never the
+//     deploy event: loopback (NPMplus forwards to 127.0.0.1:<statio-allocated host port>) or
+//     container (NPMplus + app share a docker network; forward by container name, no host
+//     port). -> UpstreamMode (+ Network for container mode).
 type NPMplusConfig struct {
 	BaseURL         string `yaml:"base_url"`
 	CredentialsFile string `yaml:"credentials_file"`
+	// UpstreamMode is the DATA-plane topology: "loopback" (default) or "container". The agent
+	// computes the NPMplus forward target from this + server-side state, so a deploy event can
+	// never point the proxy anywhere (the no-SSRF property holds in both modes).
+	UpstreamMode string `yaml:"upstream_mode"`
+	// Network is the shared docker network NPMplus and the app both join, REQUIRED in container
+	// mode (the generated compose joins it as external; NPMplus must already be attached). Empty
+	// in loopback mode.
+	Network string `yaml:"network"`
 }
+
+// Reverse-proxy data-plane modes.
+const (
+	UpstreamModeLoopback  = "loopback"
+	UpstreamModeContainer = "container"
+)
 
 // CloudflareConfig is optional. When CredentialsFile is empty, DNS reconciliation is
 // disabled. ZoneApex is pinned at init so the agent can enforce fqdn zone-membership
@@ -116,6 +139,9 @@ func (c *Config) applyDefaults() {
 	if c.Cosign.OIDCIssuer == "" {
 		c.Cosign.OIDCIssuer = "https://token.actions.githubusercontent.com"
 	}
+	if c.NPMplus.UpstreamMode == "" {
+		c.NPMplus.UpstreamMode = UpstreamModeLoopback
+	}
 }
 
 // Validate enforces the fail-closed invariants.
@@ -137,6 +163,25 @@ func (c *Config) Validate() error {
 		if c.Cloudflare.ZoneApex == "" {
 			return fmt.Errorf("config: cloudflare configured but zone_apex is empty")
 		}
+	}
+	if err := c.NPMplus.validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (n *NPMplusConfig) validate() error {
+	switch n.UpstreamMode {
+	case UpstreamModeLoopback:
+		if n.Network != "" {
+			return fmt.Errorf("config: npmplus.network is only valid with upstream_mode: container")
+		}
+	case UpstreamModeContainer:
+		if n.Network == "" {
+			return fmt.Errorf("config: npmplus.upstream_mode: container requires npmplus.network (the shared docker network)")
+		}
+	default:
+		return fmt.Errorf("config: npmplus.upstream_mode %q is invalid (want %q or %q)", n.UpstreamMode, UpstreamModeLoopback, UpstreamModeContainer)
 	}
 	return nil
 }

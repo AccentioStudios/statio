@@ -69,6 +69,10 @@ inputs:
     description: "Treat success_degraded as failure"
     required: false
     default: "false"
+  preflight:
+    description: "Run a read-only preflight check (port + reverse-proxy/DNS readiness) before deploying. Fails fast on a misconfiguration without changing anything on the server."
+    required: false
+    default: "true"
 
 # NOTE: the calling workflow MUST grant `permissions: id-token: write` so cosign can sign
 # the deploy payload keyless with the run's OIDC identity (the same identity that signs the
@@ -99,6 +103,23 @@ runs:
         oauth-client-id: ${{ inputs.ts-oauth-client-id }}
         oauth-secret: ${{ inputs.ts-oauth-secret }}
         tags: tag:ci
+    - name: Preflight (read-only readiness check)
+      if: ${{ inputs.preflight == 'true' }}
+      shell: bash
+      env:
+        # Same signed payload as the deploy, sent to the agent's read-only /preflight endpoint.
+        # Secrets go via env, never argv. Catches a port conflict or an un-provisioned proxy/DNS
+        # BEFORE the deploy mutates anything.
+        STATIO_ENV_OVERRIDES: ${{ inputs.env }}
+        STATIO_TARGET: ${{ inputs.target }}
+        STATIO_SERVICE: ${{ inputs.service }}
+        STATIO_IMAGE: ${{ inputs.image }}
+        STATIO_DIGEST: ${{ inputs.digest }}
+        STATIO_FILE: ${{ inputs.statio-file }}
+        STATIO_TIMEOUT: ${{ inputs.timeout }}
+        STATIO_REGISTRY_USERNAME: ${{ inputs.registry-username || github.actor }}
+        STATIO_REGISTRY_PASSWORD: ${{ inputs.registry-password || github.token }}
+      run: ${{ github.action_path }}/action/preflight.sh
     - name: Deploy
       shell: bash
       env:

@@ -204,8 +204,13 @@ func (p *ProxySpec) validate() error {
 	if !isValidHostname(p.Domain) {
 		return newErr("proxy_domain", "proxy.domain is not a valid hostname")
 	}
-	if p.UpstreamPort < 1 || p.UpstreamPort > 65535 {
-		return newErr("proxy_port", "proxy.upstream_port must be 1..65535")
+	// upstream_host/upstream_port are OPTIONAL: the agent now computes the forward TARGET itself
+	// (loopback host port, or your app's container name) from the server-side data-plane mode, so
+	// a statio.yaml can just say `proxy: { domain: ... }`. When present they are still bounded (an
+	// out-of-range port or a malformed name is a mistake worth catching) but 0/"" means "let the
+	// server decide".
+	if p.UpstreamPort != 0 && (p.UpstreamPort < 1 || p.UpstreamPort > 65535) {
+		return newErr("proxy_port", "proxy.upstream_port, if set, must be 1..65535")
 	}
 	if p.Scheme != "http" && p.Scheme != "https" {
 		return newErr("proxy_scheme", "proxy.scheme must be http or https")

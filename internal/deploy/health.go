@@ -26,8 +26,11 @@ type HealthConfig struct {
 }
 
 // buildProbe derives the loopback probe from your app (the first image-less service). The
-// probe host is ALWAYS 127.0.0.1; only the path/port come from the (signed) intent.
-func buildProbe(intent *spec.AppIntent) HealthConfig {
+// probe host is ALWAYS 127.0.0.1; the path comes from the (signed) intent. The PORT is the
+// statio-allocated host port (hostPort) when given: the agent runs on the host and can only
+// reach the app through its published loopback port, NOT the dev-declared or container port.
+// hostPort == 0 falls back to the dev-declared host port (legacy / unit tests).
+func buildProbe(intent *spec.AppIntent, hostPort int) HealthConfig {
 	if intent == nil {
 		return HealthConfig{Type: "none"}
 	}
@@ -37,12 +40,21 @@ func buildProbe(intent *spec.AppIntent) HealthConfig {
 			continue
 		}
 		h := s.Health
+		port := hostPort
 		switch h.Type {
 		case "tcp":
-			return HealthConfig{Type: "tcp", Addr: fmt.Sprintf("127.0.0.1:%d", h.Port),
+			if port == 0 {
+				port = h.Port
+			}
+			if port == 0 {
+				return HealthConfig{Type: "none"}
+			}
+			return HealthConfig{Type: "tcp", Addr: fmt.Sprintf("127.0.0.1:%d", port),
 				StartPeriod: h.StartPeriod, Interval: h.Interval, Timeout: h.Timeout, Retries: h.Retries}
 		default: // http
-			port := firstHostPort(s)
+			if port == 0 {
+				port = firstHostPort(s)
+			}
 			if h.Path == "" || port == 0 {
 				return HealthConfig{Type: "none"}
 			}

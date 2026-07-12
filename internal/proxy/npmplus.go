@@ -116,6 +116,17 @@ type proxyHost struct {
 	Enabled        bool     `json:"enabled"`
 }
 
+// Check is a READ-ONLY reachability + auth probe: it mints a token (proving the agent's NPMplus
+// credentials are valid) and lists proxy hosts (proving the API answers). It creates and changes
+// nothing, so preflight can confirm NPMplus is usable before a deploy depends on it.
+func (c *Client) Check(ctx context.Context) error {
+	if err := c.authenticate(ctx); err != nil {
+		return err
+	}
+	var hosts []proxyHost
+	return c.do(ctx, http.MethodGet, "/api/nginx/proxy-hosts", nil, &hosts, true)
+}
+
 // ReconcileProxyHost performs an idempotent create-or-update keyed by domain.
 func (c *Client) ReconcileProxyHost(ctx context.Context, spec HostSpec) (Result, error) {
 	if err := c.authenticate(ctx); err != nil {
