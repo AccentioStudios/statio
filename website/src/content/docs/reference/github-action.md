@@ -107,8 +107,14 @@ to your existing one, and never touches your file.
 | `statio-version` | no | Binary version to download (default `v1`; a bare major, exact `vX.Y.Z`, or `latest`). |
 | `timeout` | no | Deploy timeout (default `5m`). |
 | `strict` | no | Treat `success_degraded` as a failure (default `false`). |
+| `preflight` | no | Run a read-only readiness check before deploying (default `true`). It verifies the app's host port is free and — if your `statio.yaml` asks for a public domain — that NPMplus is configured, reachable and the domain is allowlisted, **without changing anything**. A failure stops the job before the deploy mutates the server. Set `false` to skip. |
 
 `deploy_seq` (anti-replay) is set by the Action itself from `github.run_number` — don't configure it.
+
+The preflight step runs after the tailnet join and before the deploy, sending the **same signed
+payload** to the agent's read-only `/preflight` endpoint. It is the cheap, fail-fast guard against
+hidden crashes (a port another app already owns; a proxy/DNS the repo requests but the server was
+never set up for).
 
 ## Versioning
 

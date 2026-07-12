@@ -36,7 +36,14 @@ statio version                                   # or: statio --version
 # Internal — run by systemd & the GitHub Action, not by hand
 statio agent run --config <path>
 statio deploy ...
+statio preflight ...                             # read-only dry-run: port + proxy/DNS readiness
 ```
+
+`statio preflight` takes the same inputs as `statio deploy` and sends the same signed payload, but
+to the agent's read-only `/preflight` endpoint: it checks the app's host port is free and — if the
+`statio.yaml` requests a public domain — that NPMplus is configured, reachable and the domain is
+allowlisted, **changing nothing**. The Action runs it automatically before each deploy (disable with
+the `preflight: false` input). A failed check is a non-zero exit with the reason and a hint.
 
 The wizards (`init server`, `init integrations`, `init repo`, `app add`, `app edit`) are
 interactive: run them without flags and they guide you. `app list` is interactive too — it lets you

@@ -233,11 +233,12 @@ In your repo, this:
 ```yaml
 services:
   - name: api                    # your app: no `image:` → your signed image is injected
-    ports: [3000]                # → published only on 127.0.0.1:3000
+    ports: [3000]                # the port your app LISTENS on (statio assigns the host port,
+                                 # published only on 127.0.0.1)
     env: [DATABASE_URL]          # the NAME only; the value comes from CI
     env_inline: { NODE_ENV: production }
     health: { path: /health }
-proxy: { domain: api.example.com, upstream: api, upstream_port: 3000 }
+proxy: { domain: api.example.com }   # optional — the agent computes the forward target itself
 dns:   { domain: api.example.com }
 ```
 
@@ -270,7 +271,9 @@ permissions:
 
 The action builds your `Dockerfile`, pushes the image to GHCR, cosign-signs it, signs the payload
 and deploys — no separate build-push or cosign steps. Already build the image yourself? Pass
-`digest: ${{ steps.build.outputs.digest }}` and it skips building. statio never modifies your
+`digest: ${{ steps.build.outputs.digest }}` and it skips building. Before deploying it runs a
+read-only **preflight** against the agent (port availability, required env, proxy/DNS readiness) so
+a misconfiguration fails the job fast without touching the server. statio never modifies your
 workflow: if you already have one, you paste the step; if not, it generates the full `deploy.yml`.
 The Action inputs are in the [reference](/reference/github-action/).
 

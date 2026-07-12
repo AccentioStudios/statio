@@ -69,7 +69,14 @@ Per service, under a `flock`, the agent runs an ordered pipeline:
 
 `verify` and `pull` are hard gates; `proxy`/`dns` are **best-effort** (a Cloudflare/NPMplus blip never
 takes down a healthy container). **Health runs before the edge**, so a broken deploy is never exposed
-and a rollback stays edge-neutral.
+and a rollback stays edge-neutral. Between `admit` and `recreate` the agent **allocates** this slot's
+stable loopback host port from a host-level registry (`ports.json`); statio is the single allocator,
+so two slots can never publish the same host port.
+
+There is also a read-only **preflight** that runs the same `admit` checks plus port-availability and
+proxy/DNS readiness, then stops — no pull, recreate, or edge write, no state change. CI POSTs the same
+signed payload to `/preflight` (it shares the exact signature gate, so it is no anonymous probe) to
+fail fast and cheap on a misconfiguration before a real deploy mutates anything.
 
 Terminal states (in the HTTP response, with no secrets):
 
@@ -80,6 +87,7 @@ Terminal states (in the HTTP response, with no secrets):
 | `success_degraded` | container healthy, but proxy/dns failed (converges on retry) |
 | `failure_rolled_back` | health failed → reverted image + env to the last good |
 | `failure` | a hard gate failed (admit/verify/pull) → nothing changed |
+| `preflight_ok` | a preflight dry-run passed every check (no deploy performed) |
 
 ## 4. The signed wire contract
 
@@ -141,7 +149,11 @@ they can't be expressed.
 - Each `service` is your app (no `image:` → the verified, repo-pinned digest is injected) or a
   dependency (`image:` pinned by digest, from a registry on the server allowlist).
 - **Ports** publish on `127.0.0.1` only — the host IP is hard-coded by the generator, never carried, so
-  a port can't land on a public interface. A service with no ports stays on the internal network.
+  a port can't land on a public interface. You declare the port your app *listens on*; the **host side
+  is allocated by statio** (a stable per-slot port from `ports.json`), so two apps never collide. A
+  service with no ports stays on the internal network. In the `container` proxy mode your app also
+  joins a shared **external** network so NPMplus can reach it by container name (still no `network_mode`
+  — only a named bridge network, which can't escape isolation).
 - **Volumes** are Docker-managed named volumes (name + path only): no driver/device/bind source, so a
   "named volume" can never become a host bind mount.
 - **Env** lists key *names*; **env_inline** holds non-secret literals; **command** is exec-form only
@@ -213,9 +225,12 @@ attacker can sign code + config **for that one app**. Mitigations and response:
   short-lived access token it generates does, auto-refreshed), so there is nothing to rotate on a
   schedule. To cut off CI, delete or regenerate the `tag:ci` OAuth client in the Tailscale console and
   update the `STATIO_TS_OAUTH_CLIENT_ID` / `STATIO_TS_OAUTH_SECRET` secrets.
-- **Bounded by design:** even with a signed payload, DNS points only at your pinned IP, the upstream
-  and domains are allowlisted, and the generated compose can't escalate to host root. The blast radius
-  is "that app's own repo deployed something".
+- **Bounded by design:** even with a signed payload, DNS points only at your pinned IP, domains are
+  allowlisted, and the generated compose can't escalate to host root. The reverse-proxy forward
+  **target is computed server-side** (the loopback host port statio allocated, or your app's own
+  container name — per the configured data-plane mode), never taken from the event, so a payload can
+  only ever point the proxy at its own deployed app. The blast radius is "that app's own repo deployed
+  something".
 
 ### 6.6 The CI client and the agent client (separation)
 

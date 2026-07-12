@@ -22,6 +22,11 @@ Every failure carries a stable `code` plus a `hint`. The raw detail (compose out
 | `[registry_denied]` | A dependency uses a registry outside the allowlist (`statio app add --registries`). |
 | `success_degraded` that won't clear | NPMplus or Cloudflare unreachable. Check `statio init integrations` and retry. |
 | `[timeout]` and it reverts | The app doesn't answer on the health path (loopback). Check the container. |
+| Preflight/deploy `[port_conflict]` | Another process on the server is holding this app's allocated host port. statio assigns each app its own loopback port, so this means something **outside** statio grabbed it — find and stop it. |
+| Preflight/deploy `[port_exhausted]` | The host-port pool (41000–48999) is full. Remove an unused app with `sudo statio app rm <name>` to free its port. |
+| Preflight `[proxy_unconfigured]` / `[dns_unconfigured]` | Your `statio.yaml` asks for a public domain (or DNS) but the agent has no NPMplus (or Cloudflare). Run `sudo statio init integrations`, or drop the `proxy:`/`dns:` block. |
+| Preflight `[proxy_unreachable]` | The agent couldn't reach NPMplus or its credentials were rejected. Check NPMplus is up on the admin URL you set, and re-run `sudo statio init integrations`. |
+| Container name is doubled (e.g. `api-api-1`) | Normal Compose naming `<project>-<service>-<index>`: the project is the slot, the service is your `statio.yaml` `name:`. Cosmetic — use a shorter `name:` to avoid the repetition. |
 
 For the meaning of each pipeline stage and state, see the
 [architecture](/architecture/#3-the-deploy-pipeline).
