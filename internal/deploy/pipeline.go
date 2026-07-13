@@ -97,7 +97,10 @@ func (r *Result) stageErr(stage, code, message string) {
 	r.Stages = append(r.Stages, StageStatus{Stage: stage, Status: "failed", Code: code, Message: message, Hint: hintFor(code)})
 }
 
-// codeOf extracts a stable error code from a typed pipeline error.
+// codeOf extracts a stable error code from a typed pipeline error. Untyped errors are also
+// sniffed for a recognizable CAUSE worth surfacing to CI: an out-of-disk failure anywhere in
+// the pipeline (pull credential write, image unpack, compose scratch) must reach CI as
+// disk_full + its cleanup hint — not as an opaque "internal" only the server journal explains.
 func codeOf(err error) string {
 	var ve *spec.ValidationError
 	if errors.As(err, &ve) {
@@ -107,7 +110,18 @@ func codeOf(err error) string {
 	if errors.As(err, &ee) {
 		return ee.Code
 	}
+	if isNoSpace(err, "") {
+		return "disk_full"
+	}
 	return "internal"
+}
+
+// isNoSpace reports whether an error (or a captured raw output, e.g. compose's) is an
+// out-of-disk failure. Matched on the kernel's stable ENOSPC message; the string itself
+// carries no secret, so promoting it to a CI-visible code is sanitization-safe.
+func isNoSpace(err error, rawOutput string) bool {
+	const enospc = "no space left on device"
+	return (err != nil && strings.Contains(err.Error(), enospc)) || strings.Contains(rawOutput, enospc)
 }
 
 // hintFor maps a code to a short actionable hint for CI logs.
@@ -284,7 +298,12 @@ func (d *Deployer) Run(ctx context.Context, req *spec.DeployRequest) (*Result, e
 	res.stage("env", "ok", fmt.Sprintf("%d services", len(req.AppIntent.Services)))
 	if out, err := composeUp(ctx, runDir, d.Manifest.Name); err != nil {
 		// Raw compose output goes ONLY to the journal; the response gets a fixed message (#23).
+		// One recognizable cause is promoted to its own code: out-of-disk (the fixed message
+		// still carries none of the raw output).
 		d.Log.Error("compose up failed", "service", req.Service, "output", out)
+		if isNoSpace(err, out) {
+			return d.failCode(res, "recreate", "disk_full", "the server is out of disk space", err)
+		}
 		return d.failCode(res, "recreate", "compose_failed", "compose recreate failed; see agent journal", err)
 	}
 	res.stage("recreate", "ok", "")

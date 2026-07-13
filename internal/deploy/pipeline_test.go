@@ -25,10 +25,16 @@ func (f *fakeVerifier) Verify(ctx context.Context, repo, digest string, s Effect
 	return f.err
 }
 
-type fakePuller struct{ called bool }
+type fakePuller struct {
+	called bool
+	err    error
+}
 
 func (f *fakePuller) Pull(ctx context.Context, ref string, auth *spec.RegistryAuth) (string, error) {
 	f.called = true
+	if f.err != nil {
+		return "", f.err
+	}
 	return ref[strings.Index(ref, "@")+1:], nil // resolved digest
 }
 
@@ -288,6 +294,36 @@ func TestPreflightProxyOK(t *testing.T) {
 	res, err := d.Preflight(context.Background(), r)
 	if err != nil || res.State != StatePreflightOK {
 		t.Fatalf("want preflight_ok, got state=%s err=%v", res.State, err)
+	}
+}
+
+func TestRunClassifiesMidDeployNoSpaceAsDiskFull(t *testing.T) {
+	// The field failure: the pull credential write died with ENOSPC and CI saw an opaque
+	// [internal]. The stable ENOSPC cause must surface to CI as disk_full + its cleanup hint.
+	d, _, p := setup(t, "")
+	p.err = fmt.Errorf("prepare registry credential: mkdir /tmp/statio-pull123: no space left on device")
+	res, _ := d.Run(context.Background(), req(t, nil))
+	if res.State != StateFailure {
+		t.Fatalf("want failure, got %s", res.State)
+	}
+	last := res.Stages[len(res.Stages)-1]
+	if last.Stage != "pull" || last.Code != "disk_full" {
+		t.Fatalf("want pull/disk_full, got %s/%s", last.Stage, last.Code)
+	}
+	if last.Hint == "" {
+		t.Fatal("disk_full must carry the cleanup hint")
+	}
+}
+
+func TestIsNoSpace(t *testing.T) {
+	if !isNoSpace(fmt.Errorf("mkdir /tmp/x: no space left on device"), "") {
+		t.Fatal("ENOSPC error text must match")
+	}
+	if !isNoSpace(nil, "failed to register layer: no space left on device") {
+		t.Fatal("ENOSPC in raw compose output must match")
+	}
+	if isNoSpace(fmt.Errorf("connection refused"), "some output") {
+		t.Fatal("unrelated errors must not classify as disk_full")
 	}
 }
 
