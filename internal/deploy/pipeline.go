@@ -152,7 +152,9 @@ func hintFor(code string) string {
 	case "proxy_no_port":
 		return "the proxy needs a port to forward to — declare your app's port in statio.yaml (e.g. ports: [3000]) or drop the proxy block"
 	case "compose_unavailable":
-		return "install the docker compose v2 plugin on the server: apt-get install docker-compose-v2 (or docker-compose-plugin), then verify with `docker compose version`"
+		return "install compose v2 SYSTEM-WIDE on the server: apt-get install docker-compose-v2 (or docker-compose-plugin). " +
+			"Note: a plugin under /root/.docker/cli-plugins is invisible to the agent's sandbox — " +
+			"move it to /usr/local/lib/docker/cli-plugins, then verify with `sudo docker compose version`"
 	case "disk_full":
 		return "free disk space on the server: `docker system prune -f`, `docker image prune -af`, `journalctl --vacuum-size=200M`"
 	case "proxy_unconfigured":

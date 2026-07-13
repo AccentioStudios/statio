@@ -134,16 +134,40 @@ func dockerPortPublishers(ctx context.Context, hostPort int) (projects []string,
 	return projects, true
 }
 
-// realComposeCheck verifies the docker compose v2 plugin answers (`docker compose version`).
-// Preflight runs it: on a server without the plugin, plain docker parses `compose -f ...` as
-// unknown flags and every deploy dies mid-recreate with an opaque exit 125 — this turns that
-// into a clear, pre-deploy compose_unavailable.
-func realComposeCheck(ctx context.Context) error {
-	out, err := exec.CommandContext(ctx, "docker", "compose", "version").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("docker compose version failed: %w: %s", err, strings.TrimSpace(string(out)))
+// composeArgv resolves how to invoke compose v2 on this host: the docker CLI plugin
+// (`docker compose`) first, else a standalone `docker-compose` binary — v2 ONLY (the EOL python
+// v1 has a different CLI surface and is rejected). The fallback matters because the agent's
+// systemd sandbox sets ProtectHome=yes: a plugin installed under /root/.docker/cli-plugins is
+// INVISIBLE to the agent even though `sudo docker compose` finds it — a standalone v2 on PATH
+// keeps such hosts working.
+func composeArgv(ctx context.Context) ([]string, error) {
+	pluginOut, pluginErr := exec.CommandContext(ctx, "docker", "compose", "version").CombinedOutput()
+	if pluginErr == nil {
+		return []string{"docker", "compose"}, nil
 	}
-	return nil
+	out, err := exec.CommandContext(ctx, "docker-compose", "version", "--short").Output()
+	if err == nil {
+		v := strings.TrimSpace(string(out))
+		if standaloneComposeIsV2(v) {
+			return []string{"docker-compose"}, nil
+		}
+		return nil, fmt.Errorf("docker compose plugin missing and standalone docker-compose is v%s (v2 required)", v)
+	}
+	return nil, fmt.Errorf("no compose v2: `docker compose version` failed (%s) and no standalone docker-compose found",
+		strings.TrimSpace(string(pluginOut)))
+}
+
+// standaloneComposeIsV2 reports whether a `docker-compose version --short` string is a 2.x.
+func standaloneComposeIsV2(v string) bool {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	return strings.HasPrefix(v, "2.")
+}
+
+// realComposeCheck verifies SOME compose v2 is invocable (plugin or standalone). Preflight runs
+// it: without it every deploy dies mid-recreate with an opaque exit 125.
+func realComposeCheck(ctx context.Context) error {
+	_, err := composeArgv(ctx)
+	return err
 }
 
 // composeUp recreates the service from the generated compose in dir, via an explicit argv
@@ -156,7 +180,12 @@ func composeUp(ctx context.Context, dir, slot string) (string, error) {
 	if fi, err := os.Stat(composePath); err != nil || fi.Size() == 0 {
 		return "", fmt.Errorf("compose file missing or empty (redeploy required after reboot)")
 	}
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", composePath, "-p", slot, "up", "-d", "--no-build")
+	argv, err := composeArgv(ctx)
+	if err != nil {
+		return "", fmt.Errorf("compose unavailable: %w", err)
+	}
+	args := append(append([]string{}, argv[1:]...), "-f", composePath, "-p", slot, "up", "-d", "--no-build")
+	cmd := exec.CommandContext(ctx, argv[0], args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
