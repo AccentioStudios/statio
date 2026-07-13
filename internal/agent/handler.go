@@ -144,7 +144,12 @@ func (a *Agent) buildDeployer(m *deploy.ServiceManifest, reg *spec.RegistryAuth)
 		if err != nil {
 			return nil, err
 		}
-		proxyP = proxy.New(a.cfg.NPMplus.BaseURL, c.Identity, c.Secret)
+		var opts []proxy.Option
+		if a.cfg.NPMplus.InsecureSkipVerify {
+			// Loopback-only (config validation enforces it): accept NPMplus's self-signed admin cert.
+			opts = append(opts, proxy.WithInsecureTLS())
+		}
+		proxyP = proxy.New(a.cfg.NPMplus.BaseURL, c.Identity, c.Secret, opts...)
 	}
 	var dnsP deploy.DNSProvider
 	if a.cfg.Cloudflare.CredentialsFile != "" {

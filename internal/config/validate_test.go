@@ -115,3 +115,33 @@ func TestValidateLoopbackRejectsNetwork(t *testing.T) {
 		t.Fatal("expected loopback+network to be rejected")
 	}
 }
+
+func TestValidateInsecureSkipVerifyLoopbackOnly(t *testing.T) {
+	c := valid()
+	c.NPMplus.BaseURL = "https://127.0.0.1:81"
+	c.NPMplus.InsecureSkipVerify = true
+	if err := c.Validate(); err != nil {
+		t.Fatalf("loopback insecure_skip_verify should pass: %v", err)
+	}
+	// A remote base_url must never skip TLS verification (would open a MITM surface).
+	c.NPMplus.BaseURL = "https://npm.example.com:81"
+	if c.Validate() == nil {
+		t.Fatal("expected remote insecure_skip_verify to be rejected")
+	}
+}
+
+func TestIsLoopbackURL(t *testing.T) {
+	cases := map[string]bool{
+		"https://127.0.0.1:81":      true,
+		"http://localhost:81":       true,
+		"https://[::1]:81":          true,
+		"https://npm.example.com":   false,
+		"https://192.168.1.5:81":    false,
+		"https://127.0.0.1.evil.io": false,
+	}
+	for u, want := range cases {
+		if got := IsLoopbackURL(u); got != want {
+			t.Errorf("IsLoopbackURL(%q) = %v, want %v", u, got, want)
+		}
+	}
+}

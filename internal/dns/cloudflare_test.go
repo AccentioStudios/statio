@@ -73,3 +73,28 @@ func TestUpsertAmbiguous(t *testing.T) {
 		t.Fatalf("expected ambiguous error, got %v", err)
 	}
 }
+
+func TestCheckTokenAndZone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/client/v4/zones/zone123" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true})
+	}))
+	defer srv.Close()
+
+	if err := New("tok", "zone123", srv.URL).Check(context.Background()); err != nil {
+		t.Fatalf("valid token+zone should pass: %v", err)
+	}
+	if err := New("WRONG", "zone123", srv.URL).Check(context.Background()); err == nil {
+		t.Fatal("bad token must fail Check")
+	}
+	if err := New("tok", "otherzone", srv.URL).Check(context.Background()); err == nil {
+		t.Fatal("unknown zone must fail Check")
+	}
+}

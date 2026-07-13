@@ -106,6 +106,22 @@ func (c *Client) UpsertA(ctx context.Context, spec RecordSpec) (Result, error) {
 	}
 }
 
+// Check is a READ-ONLY probe that the token works and can see the pinned zone: it GETs the zone
+// object with the Bearer. The integrations wizard runs it right after the operator enters the
+// credentials, so a typo'd token/zone fails in the wizard — not later in CI.
+func (c *Client) Check(ctx context.Context) error {
+	var out struct {
+		Success bool `json:"success"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/client/v4/zones/"+c.zoneID, nil, &out); err != nil {
+		return err
+	}
+	if !out.Success {
+		return fmt.Errorf("cloudflare: token or zone id rejected")
+	}
+	return nil
+}
+
 func (c *Client) list(ctx context.Context, fqdn string) ([]cfRecord, error) {
 	q := url.Values{"type": {"A"}, "name": {fqdn}}
 	path := fmt.Sprintf("/client/v4/zones/%s/dns_records?%s", c.zoneID, q.Encode())

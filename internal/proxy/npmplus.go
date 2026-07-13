@@ -17,6 +17,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,14 +56,31 @@ type Client struct {
 	tokenExp time.Time
 }
 
-// New builds a client. baseURL is e.g. http://npmplus:81 or http://127.0.0.1:81.
-func New(baseURL, identity, secret string) *Client {
-	return &Client{
+// Option customizes the client.
+type Option func(*Client)
+
+// WithInsecureTLS accepts the NPMplus admin API's self-signed certificate. NPMplus serves its
+// admin port over HTTPS with a self-signed cert by default, and the agent reaches it over host
+// loopback (the config validator only allows this flag for a loopback base_url), so skipping
+// chain verification here does not open a network MITM surface.
+func WithInsecureTLS() Option {
+	return func(c *Client) {
+		c.hc.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	}
+}
+
+// New builds a client. baseURL is e.g. http://npmplus:81 or https://127.0.0.1:81.
+func New(baseURL, identity, secret string, opts ...Option) *Client {
+	c := &Client{
 		baseURL:  baseURL,
 		identity: identity,
 		secret:   secret,
 		hc:       &http.Client{Timeout: 15 * time.Second},
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 type tokenReq struct {

@@ -1,8 +1,13 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/accentiostudios/statio/internal/config"
@@ -106,6 +111,85 @@ func TestReleaseSlotPortFreesAndIsNoOpWhenAbsent(t *testing.T) {
 	}
 	if _, ok := got.PortFor("web"); !ok {
 		t.Fatal("releasing one slot must not drop another slot's assignment")
+	}
+}
+
+// npmplusHandler fakes the two endpoints Check uses: token mint + host list.
+func npmplusHandler(t *testing.T) http.Handler {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/tokens", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Identity, Secret string }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Identity != "statio@x.com" || body.Secret != "pw" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": "tok"})
+	})
+	mux.HandleFunc("GET /api/nginx/proxy-hosts", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]any{})
+	})
+	return mux
+}
+
+func TestNpmplusCandidatesOrder(t *testing.T) {
+	// http loopback entered -> strict http, strict https, then https with self-signed.
+	got := npmplusCandidates("http://127.0.0.1:81")
+	want := []npmplusCandidate{
+		{url: "http://127.0.0.1:81"},
+		{url: "https://127.0.0.1:81"},
+		{url: "https://127.0.0.1:81", insecure: true},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("candidates = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("candidate[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	// A REMOTE https url must never get the self-signed concession.
+	for _, c := range npmplusCandidates("https://npm.example.com:81") {
+		if c.insecure {
+			t.Fatalf("remote host must not get an insecure candidate: %+v", c)
+		}
+	}
+}
+
+func TestProbeNPMplusAutoDetectsSelfSignedHTTPS(t *testing.T) {
+	// The real-world NPMplus default: admin API on loopback, HTTPS, self-signed cert. The
+	// operator guesses http:// — the probe must land on https + insecure and report THAT.
+	srv := httptest.NewTLSServer(npmplusHandler(t))
+	defer srv.Close()
+	entered := strings.Replace(srv.URL, "https://", "http://", 1)
+
+	finalURL, insecure, err := probeNPMplus(context.Background(), entered, "statio@x.com", "pw")
+	if err != nil {
+		t.Fatalf("probe failed: %v", err)
+	}
+	if finalURL != srv.URL || !insecure {
+		t.Fatalf("probe = (%s, insecure=%v), want (%s, insecure=true)", finalURL, insecure, srv.URL)
+	}
+}
+
+func TestProbeNPMplusPlainHTTPStaysStrict(t *testing.T) {
+	srv := httptest.NewServer(npmplusHandler(t))
+	defer srv.Close()
+	finalURL, insecure, err := probeNPMplus(context.Background(), srv.URL, "statio@x.com", "pw")
+	if err != nil {
+		t.Fatalf("probe failed: %v", err)
+	}
+	if finalURL != srv.URL || insecure {
+		t.Fatalf("probe = (%s, insecure=%v), want (%s, insecure=false)", finalURL, insecure, srv.URL)
+	}
+}
+
+func TestProbeNPMplusBadCredentials(t *testing.T) {
+	srv := httptest.NewServer(npmplusHandler(t))
+	defer srv.Close()
+	if _, _, err := probeNPMplus(context.Background(), srv.URL, "statio@x.com", "WRONG"); err == nil {
+		t.Fatal("bad credentials must fail the probe")
 	}
 }
 

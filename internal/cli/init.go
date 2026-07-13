@@ -2,17 +2,21 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/accentiostudios/statio/internal/config"
+	"github.com/accentiostudios/statio/internal/dns"
 	"github.com/accentiostudios/statio/internal/fsutil"
+	"github.com/accentiostudios/statio/internal/proxy"
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -367,27 +371,63 @@ func configureNPMplus(cfg *config.Config) error {
 
 	info("In NPMplus: create a dedicated non-admin user (Users → Add). You'll enter ITS login email")
 	info("+ password below. The agent reaches the NPMplus admin API over localhost from the host.")
-	url, identity, curSecret := readNPMplusSecret(npmplusSecretPath)
-	if url == "" {
-		url = "http://127.0.0.1:81"
+	apiURL, identity, curSecret := readNPMplusSecret(npmplusSecretPath)
+	if apiURL == "" {
+		apiURL = "https://127.0.0.1:81"
 	}
-	secret := ""
-	secretDesc := "That user's password (the API 'secret'). Stored 0600, root-only."
-	if curSecret != "" {
-		secretDesc = "Leave BLANK to keep the current password. " + secretDesc
-	}
-	if err := runForm(
-		inputField("NPMplus admin API URL", "How the AGENT reaches NPMplus (control plane). The agent runs on the host, so this is almost always host loopback: http://127.0.0.1:81", "http://127.0.0.1:81", &url, true),
-		inputField("NPMplus login email", "The dedicated non-admin NPMplus user (the API 'identity').", "statio@your-domain.com", &identity, true),
-		huh.NewInput().Title("NPMplus password").Description(secretDesc).EchoMode(huh.EchoModePassword).Value(&secret),
-	); err != nil {
-		return err
-	}
-	if secret == "" {
-		secret = curSecret // keep existing on a blank answer
-	}
-	if secret == "" {
-		return fmt.Errorf("NPMplus password is required (none stored yet)")
+	var secret string
+	var insecure bool
+	for {
+		secret = ""
+		secretDesc := "That user's password (the API 'secret'). Stored 0600, root-only."
+		if curSecret != "" {
+			secretDesc = "Leave BLANK to keep the current password. " + secretDesc
+		}
+		if err := runForm(
+			inputField("NPMplus admin API URL", "How the AGENT reaches NPMplus (control plane). The agent runs on the host, so this is almost always host loopback: https://127.0.0.1:81 (scheme is auto-detected).", "https://127.0.0.1:81", &apiURL, true),
+			inputField("NPMplus login email", "The dedicated non-admin NPMplus user (the API 'identity').", "statio@your-domain.com", &identity, true),
+			huh.NewInput().Title("NPMplus password").Description(secretDesc).EchoMode(huh.EchoModePassword).Value(&secret),
+		); err != nil {
+			return err
+		}
+		if secret == "" {
+			secret = curSecret // keep existing on a blank answer
+		}
+		if secret == "" {
+			failLine("NPMplus password is required (none stored yet)")
+			continue
+		}
+
+		// Test the credentials NOW — trying every sensible connection variant (as entered,
+		// the other scheme, and https with NPMplus's self-signed admin cert on loopback) —
+		// so a bad URL/login fails here in the wizard, not later in CI as proxy_unreachable.
+		// Whichever variant authenticates is the one that gets configured.
+		info("Testing the NPMplus connection…")
+		finalURL, ins, err := probeNPMplus(context.Background(), strings.TrimSpace(apiURL), strings.TrimSpace(identity), secret)
+		if err == nil {
+			if finalURL != strings.TrimSpace(apiURL) {
+				info("Connected via %s (auto-detected; saving that URL)", finalURL)
+			}
+			apiURL, insecure = finalURL, ins
+			okLine("NPMplus reachable and credentials accepted")
+			break
+		}
+		failLine("NPMplus test failed: %v", err)
+		retry, cerr := confirm("Retry with different values?")
+		if cerr != nil {
+			return cerr
+		}
+		if retry {
+			continue
+		}
+		saveAnyway, cerr := confirm("Save anyway, UNVERIFIED? (deploys that request a domain will fail preflight until this works)")
+		if cerr != nil {
+			return cerr
+		}
+		if !saveAnyway {
+			return fmt.Errorf("NPMplus not configured (connection test failed)")
+		}
+		break
 	}
 
 	// Data-plane topology — how NPMplus reaches your APP. The devops decides; statio supports both.
@@ -416,15 +456,79 @@ func configureNPMplus(cfg *config.Config) error {
 	}
 
 	if err := writeJSONSecret(npmplusSecretPath,
-		fmt.Sprintf(`{"base_url":%q,"identity":%q,"secret":%q}`, url, identity, secret)); err != nil {
+		fmt.Sprintf(`{"base_url":%q,"identity":%q,"secret":%q}`, apiURL, identity, secret)); err != nil {
 		return err
 	}
 	cfg.NPMplus = config.NPMplusConfig{
-		BaseURL: url, CredentialsFile: npmplusSecretPath,
+		BaseURL: apiURL, CredentialsFile: npmplusSecretPath,
 		UpstreamMode: mode, Network: network,
+		InsecureSkipVerify: insecure,
 	}
 	okLine("NPMplus configured (%s mode)", mode)
 	return nil
+}
+
+// npmplusCandidate is one way to reach the NPMplus admin API the wizard will try.
+type npmplusCandidate struct {
+	url      string
+	insecure bool // accept a self-signed cert (loopback only)
+}
+
+// npmplusCandidates expands the operator-entered URL into every sensible connection variant, in
+// preference order: exactly as entered first, then the same host on the OTHER scheme (NPMplus
+// serves its admin port over HTTPS by default, so an `http://` guess is common), each tried
+// strictly before falling back to accepting a self-signed cert — and that fallback only for a
+// loopback host (the same rule config validation enforces).
+func npmplusCandidates(raw string) []npmplusCandidate {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return []npmplusCandidate{{url: raw}}
+	}
+	loop := config.IsLoopbackURL(raw)
+	var out []npmplusCandidate
+	seen := map[npmplusCandidate]bool{}
+	add := func(c npmplusCandidate) {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	add(npmplusCandidate{url: raw})
+	if u.Scheme == "https" && loop {
+		add(npmplusCandidate{url: raw, insecure: true})
+	}
+	alt := *u
+	if u.Scheme == "http" {
+		alt.Scheme = "https"
+	} else {
+		alt.Scheme = "http"
+	}
+	add(npmplusCandidate{url: alt.String()})
+	if alt.Scheme == "https" && loop {
+		add(npmplusCandidate{url: alt.String(), insecure: true})
+	}
+	return out
+}
+
+// probeNPMplus tries every candidate until one authenticates (a read-only token mint + host
+// list). It returns the WINNING url + whether it needed the self-signed concession — exactly
+// what gets persisted, so the tested config and the saved config can never differ.
+func probeNPMplus(ctx context.Context, raw, identity, secret string) (string, bool, error) {
+	var lastErr error
+	for _, cand := range npmplusCandidates(raw) {
+		cctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		var opts []proxy.Option
+		if cand.insecure {
+			opts = append(opts, proxy.WithInsecureTLS())
+		}
+		err := proxy.New(cand.url, identity, secret, opts...).Check(cctx)
+		cancel()
+		if err == nil {
+			return cand.url, cand.insecure, nil
+		}
+		lastErr = err
+	}
+	return "", false, lastErr
 }
 
 // configureCloudflare runs the (re-runnable) Cloudflare/DNS section, pre-filled from the current
@@ -451,24 +555,55 @@ func configureCloudflare(cfg *config.Config) error {
 	info("Zone.DNS:Edit on THIS zone only (not a global key). You'll paste it below.")
 	curToken, curZoneID := readCloudflareSecret(cloudflareSecretPath)
 	zoneID, apex, ip := curZoneID, cfg.Cloudflare.ZoneApex, cfg.DNS.PublicIP
-	token := ""
-	tokenDesc := "The scoped token (Zone.DNS:Edit). Stored 0600, root-only."
-	if curToken != "" {
-		tokenDesc = "Leave BLANK to keep the current token. " + tokenDesc
-	}
-	if err := runForm(
-		inputField("Cloudflare Zone ID", "Dashboard → your domain → Overview (right column), a 32-char hex id.", "", &zoneID, true),
-		inputField("Zone apex", "The root domain the zone covers (e.g. example.com).", "example.com", &apex, true),
-		inputField("Server public IP", "The public IPv4 the A records point to.", "203.0.113.10", &ip, true),
-		huh.NewInput().Title("Cloudflare API token").Description(tokenDesc).EchoMode(huh.EchoModePassword).Value(&token),
-	); err != nil {
-		return err
-	}
-	if token == "" {
-		token = curToken
-	}
-	if token == "" {
-		return fmt.Errorf("Cloudflare API token is required (none stored yet)")
+	var token string
+	for {
+		token = ""
+		tokenDesc := "The scoped token (Zone.DNS:Edit). Stored 0600, root-only."
+		if curToken != "" {
+			tokenDesc = "Leave BLANK to keep the current token. " + tokenDesc
+		}
+		if err := runForm(
+			inputField("Cloudflare Zone ID", "Dashboard → your domain → Overview (right column), a 32-char hex id.", "", &zoneID, true),
+			inputField("Zone apex", "The root domain the zone covers (e.g. example.com).", "example.com", &apex, true),
+			inputField("Server public IP", "The public IPv4 the A records point to.", "203.0.113.10", &ip, true),
+			huh.NewInput().Title("Cloudflare API token").Description(tokenDesc).EchoMode(huh.EchoModePassword).Value(&token),
+		); err != nil {
+			return err
+		}
+		if token == "" {
+			token = curToken
+		}
+		if token == "" {
+			failLine("Cloudflare API token is required (none stored yet)")
+			continue
+		}
+
+		// Test the token + zone NOW (a read-only GET of the zone), so a typo fails here in the
+		// wizard instead of surfacing later as a degraded deploy or a failed preflight.
+		info("Testing the Cloudflare token…")
+		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := dns.New(token, strings.TrimSpace(zoneID), "").Check(cctx)
+		cancel()
+		if err == nil {
+			okLine("Cloudflare token accepted for the zone")
+			break
+		}
+		failLine("Cloudflare test failed: %v", err)
+		retry, cerr := confirm("Retry with different values?")
+		if cerr != nil {
+			return cerr
+		}
+		if retry {
+			continue
+		}
+		saveAnyway, cerr := confirm("Save anyway, UNVERIFIED?")
+		if cerr != nil {
+			return cerr
+		}
+		if !saveAnyway {
+			return fmt.Errorf("Cloudflare not configured (token test failed)")
+		}
+		break
 	}
 	if err := writeJSONSecret(cloudflareSecretPath,
 		fmt.Sprintf(`{"api_token":%q,"zone_id":%q}`, token, zoneID)); err != nil {

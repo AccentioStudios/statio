@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -71,6 +72,10 @@ type NPMplusConfig struct {
 	// mode (the generated compose joins it as external; NPMplus must already be attached). Empty
 	// in loopback mode.
 	Network string `yaml:"network"`
+	// InsecureSkipVerify accepts NPMplus's self-signed admin certificate (NPMplus serves its
+	// admin port over HTTPS with one by default). Validation restricts it to a LOOPBACK base_url,
+	// so it can never disable TLS verification towards a remote host.
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
 }
 
 // Reverse-proxy data-plane modes.
@@ -183,7 +188,26 @@ func (n *NPMplusConfig) validate() error {
 	default:
 		return fmt.Errorf("config: npmplus.upstream_mode %q is invalid (want %q or %q)", n.UpstreamMode, UpstreamModeLoopback, UpstreamModeContainer)
 	}
+	// Fail-closed: self-signed acceptance is a loopback-only concession (the agent talking to
+	// NPMplus on the same host). For any remote base_url TLS must verify normally.
+	if n.InsecureSkipVerify && !IsLoopbackURL(n.BaseURL) {
+		return fmt.Errorf("config: npmplus.insecure_skip_verify is only allowed for a loopback base_url (127.0.0.1/localhost), got %q", n.BaseURL)
+	}
 	return nil
+}
+
+// IsLoopbackURL reports whether rawURL's host is a loopback address (127.0.0.1, localhost, ::1).
+// Exported so the integrations wizard applies the exact same rule the validator enforces.
+func IsLoopbackURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
 }
 
 var anchoredRe = regexp.MustCompile(`^\^.*\$$`)
