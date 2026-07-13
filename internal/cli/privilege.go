@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -43,6 +44,21 @@ func startAgent() error {
 	}
 	if err := exec.Command("systemctl", "enable", "--now", agentUnit).Run(); err != nil {
 		return fmt.Errorf("enable --now %s: %w", agentUnit, err)
+	}
+	return nil
+}
+
+// agentActive reports whether the agent unit is currently running.
+func agentActive() bool {
+	out, _ := exec.Command("systemctl", "is-active", agentUnit).Output()
+	return string(bytes.TrimSpace(out)) == "active"
+}
+
+// restartAgent restarts the agent unit so a config change takes effect (the agent reads its
+// config once, fail-closed, at boot — there is no hot reload by design).
+func restartAgent() error {
+	if err := exec.Command("systemctl", "restart", agentUnit).Run(); err != nil {
+		return fmt.Errorf("restart %s: %w", agentUnit, err)
 	}
 	return nil
 }

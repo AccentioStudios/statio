@@ -341,7 +341,29 @@ func newInitIntegrationsCmd() *cobra.Command {
 				return err
 			}
 			okLine("Wrote %s", defaultConfigPath)
-			info("Restart the agent to apply: sudo systemctl restart statio-agent")
+
+			// The agent reads its config once at boot (fail-closed, no hot reload), so a running
+			// agent still serves the OLD settings until restarted. Offer to do it right here —
+			// a skipped restart is the classic "wizard passed but CI still fails" trap.
+			if systemctlAvailable() && agentActive() {
+				restart, err := confirm("Restart the agent now to apply the new settings?")
+				if err != nil {
+					return err
+				}
+				if restart {
+					if err := restartAgent(); err != nil {
+						warnLine("could not restart the agent: %v", err)
+						codeBlock("sudo systemctl restart statio-agent")
+						return nil
+					}
+					okLine("Agent restarted — the new settings are live")
+				} else {
+					warnLine("Not restarted: the running agent still uses the OLD settings until you run:")
+					codeBlock("sudo systemctl restart statio-agent")
+				}
+			} else {
+				info("Restart the agent to apply: sudo systemctl restart statio-agent")
+			}
 			return nil
 		},
 	}
