@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -81,7 +82,10 @@ rollback:
 	d := &Deployer{
 		Cfg: cfg, Manifest: m, StatePath: filepath.Join(dir, "state.json"),
 		Verifier: v, Puller: p, Resolve: env.ResolveFileSecret, Audience: "statio",
-		Now: func() string { return "t0" }, Log: slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		// Runtime probes are injected so tests never exec the host's real docker/statfs.
+		ComposeCheck: func(context.Context) error { return nil },
+		TmpFree:      func() (uint64, error) { return 10 << 30, nil },
+		Now:          func() string { return "t0" }, Log: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	}
 	return d, v, p
 }
@@ -284,6 +288,38 @@ func TestPreflightProxyOK(t *testing.T) {
 	res, err := d.Preflight(context.Background(), r)
 	if err != nil || res.State != StatePreflightOK {
 		t.Fatalf("want preflight_ok, got state=%s err=%v", res.State, err)
+	}
+}
+
+func TestPreflightComposeUnavailable(t *testing.T) {
+	// The field failure: server without the docker compose v2 plugin — every deploy died
+	// mid-recreate with an opaque exit 125. Preflight must catch it with a clear code.
+	d, _, _ := setup(t, "")
+	d.ComposeCheck = func(context.Context) error { return fmt.Errorf("unknown shorthand flag: 'f' in -f") }
+	res, _ := d.Preflight(context.Background(), req(t, nil))
+	last := res.Stages[len(res.Stages)-1]
+	if res.State != StateFailure || last.Code != "compose_unavailable" {
+		t.Fatalf("want failure compose_unavailable, got %s/%s", res.State, last.Code)
+	}
+}
+
+func TestPreflightDiskFull(t *testing.T) {
+	d, _, _ := setup(t, "")
+	d.TmpFree = func() (uint64, error) { return 10 << 20, nil } // 10 MB — below the floor
+	res, _ := d.Preflight(context.Background(), req(t, nil))
+	last := res.Stages[len(res.Stages)-1]
+	if res.State != StateFailure || last.Code != "disk_full" {
+		t.Fatalf("want failure disk_full, got %s/%s", res.State, last.Code)
+	}
+}
+
+func TestPreflightDiskProbeErrorIsNotFatal(t *testing.T) {
+	// A failing statfs must not block a deploy — the floor only applies when we could measure.
+	d, _, _ := setup(t, "")
+	d.TmpFree = func() (uint64, error) { return 0, fmt.Errorf("statfs unsupported") }
+	res, err := d.Preflight(context.Background(), req(t, nil))
+	if err != nil || res.State != StatePreflightOK {
+		t.Fatalf("unmeasurable disk should not fail preflight, got state=%s err=%v", res.State, err)
 	}
 }
 

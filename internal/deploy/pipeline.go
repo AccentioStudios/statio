@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -136,6 +137,10 @@ func hintFor(code string) string {
 		return "another process on the server is holding this app's port; stop it or change what binds it"
 	case "proxy_no_port":
 		return "the proxy needs a port to forward to — declare your app's port in statio.yaml (e.g. ports: [3000]) or drop the proxy block"
+	case "compose_unavailable":
+		return "install the docker compose v2 plugin on the server: apt-get install docker-compose-v2 (or docker-compose-plugin), then verify with `docker compose version`"
+	case "disk_full":
+		return "free disk space on the server: `docker system prune -f`, `docker image prune -af`, `journalctl --vacuum-size=200M`"
 	case "proxy_unconfigured":
 		return "this deploy asks for a public domain but the agent has no NPMplus; run `sudo statio init integrations`"
 	case "proxy_unreachable":
@@ -162,7 +167,14 @@ type Deployer struct {
 	RegistryAuth *spec.RegistryAuth
 	// Audience is this agent's resolved identity; a payload must target it (#17).
 	Audience string
-	Now      func() string
+	// ComposeCheck verifies the docker compose v2 CLI works on this host; nil uses the real
+	// `docker compose version`. Preflight runs it so a server without the compose plugin fails
+	// there with a clear code instead of an opaque compose_failed mid-deploy. Tests inject.
+	ComposeCheck func(ctx context.Context) error
+	// TmpFree returns the free bytes of the temp filesystem (where pull credentials and other
+	// scratch go); nil uses the real statfs. Preflight fails disk_full below a floor. Tests inject.
+	TmpFree func() (uint64, error)
+	Now     func() string
 	// Clock returns the current time for expiry checks; defaults to time.Now in the agent.
 	Clock func() time.Time
 	Log   *slog.Logger
@@ -351,6 +363,18 @@ func (d *Deployer) Preflight(ctx context.Context, req *spec.DeployRequest) (*Res
 	if err := d.checkEdgePolicy(req); err != nil {
 		return d.fail(res, "admit", "policy", err)
 	}
+	// Runtime: is this server actually able to run a deploy? A missing docker compose v2 plugin
+	// or a full disk otherwise surfaces as an opaque compose_failed / "no space left on device"
+	// MID-deploy — exactly the hidden-crash class preflight exists to kill.
+	if err := d.composeCheck(ctx); err != nil {
+		return d.failCode(res, "runtime", "compose_unavailable", "docker compose v2 is not available on the server", err)
+	}
+	if free, err := d.tmpFree(); err == nil && free < minTmpFreeBytes {
+		return d.failCode(res, "runtime", "disk_full",
+			fmt.Sprintf("only %d MB free on the server's temp filesystem", free>>20),
+			fmt.Errorf("low disk: %d bytes free", free))
+	}
+	res.stage("runtime", "ok", "")
 	// Env: catch a missing required key or a protected-key override now (the same checks Run runs),
 	// so a green preflight does not hand off to a deploy that fails at the env stage. MergeEnv reads
 	// secret VALUES server-side but returns none of them — only the pass/fail reaches the report.
@@ -567,6 +591,27 @@ func (d *Deployer) proxyNetwork(req *spec.DeployRequest) string {
 		return d.Cfg.NPMplus.Network
 	}
 	return ""
+}
+
+// minTmpFreeBytes is the floor below which preflight refuses: a deploy writes pull credentials,
+// env files and compose scratch to the temp/run filesystems, and docker needs headroom to unpack
+// layers — with less than this free, the real deploy would die mid-way with "no space left".
+const minTmpFreeBytes = 256 << 20 // 256 MB
+
+// composeCheck runs the injected or real docker-compose-v2 availability probe.
+func (d *Deployer) composeCheck(ctx context.Context) error {
+	if d.ComposeCheck != nil {
+		return d.ComposeCheck(ctx)
+	}
+	return realComposeCheck(ctx)
+}
+
+// tmpFree returns free bytes on the temp filesystem via the injected or real statfs.
+func (d *Deployer) tmpFree() (uint64, error) {
+	if d.TmpFree != nil {
+		return d.TmpFree()
+	}
+	return freeBytes(os.TempDir())
 }
 
 // portsPath is the host-level port registry shared by every slot on this server.

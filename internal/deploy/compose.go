@@ -134,6 +134,18 @@ func dockerPortPublishers(ctx context.Context, hostPort int) (projects []string,
 	return projects, true
 }
 
+// realComposeCheck verifies the docker compose v2 plugin answers (`docker compose version`).
+// Preflight runs it: on a server without the plugin, plain docker parses `compose -f ...` as
+// unknown flags and every deploy dies mid-recreate with an opaque exit 125 — this turns that
+// into a clear, pre-deploy compose_unavailable.
+func realComposeCheck(ctx context.Context) error {
+	out, err := exec.CommandContext(ctx, "docker", "compose", "version").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker compose version failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // composeUp recreates the service from the generated compose in dir, via an explicit argv
 // array (never a shell string), with the project pinned to the slot. It is run WITHOUT
 // --env-file: the digest is already baked literally into the compose, so there is no
