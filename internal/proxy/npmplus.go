@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -89,8 +90,36 @@ type tokenReq struct {
 }
 
 type tokenResp struct {
-	Token   string `json:"token"`
-	Expires int64  `json:"expires"`
+	Token   string   `json:"token"`
+	Expires flexTime `json:"expires"`
+}
+
+// flexTime tolerates every `expires` shape seen across NPM/NPMplus builds: a unix epoch number,
+// a numeric string, or an RFC3339 date string. An unrecognized shape parses as zero — the caller
+// then falls back to a fixed refresh interval, because expiry is only a refresh optimization and
+// must never fail authentication (a token was already minted).
+type flexTime struct{ t time.Time }
+
+func (f *flexTime) UnmarshalJSON(b []byte) error {
+	var n int64
+	if json.Unmarshal(b, &n) == nil {
+		if n > 0 {
+			f.t = time.Unix(n, 0)
+		}
+		return nil
+	}
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		if ts, err := time.Parse(time.RFC3339, s); err == nil {
+			f.t = ts
+			return nil
+		}
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
+			f.t = time.Unix(n, 0)
+		}
+		return nil
+	}
+	return nil // tolerate null/objects too: absent expiry, default refresh
 }
 
 // authenticate mints (or refreshes) a bearer token.
@@ -106,9 +135,9 @@ func (c *Client) authenticate(ctx context.Context) error {
 		return fmt.Errorf("npmplus auth: empty token")
 	}
 	c.token = out.Token
-	// Refresh a minute before stated expiry; default to 30m if unset.
-	if out.Expires > 0 {
-		c.tokenExp = time.Unix(out.Expires, 0).Add(-time.Minute)
+	// Refresh a minute before stated expiry; default to 30m if unset/unrecognized.
+	if !out.Expires.t.IsZero() {
+		c.tokenExp = out.Expires.t.Add(-time.Minute)
 	} else {
 		c.tokenExp = time.Now().Add(30 * time.Minute)
 	}

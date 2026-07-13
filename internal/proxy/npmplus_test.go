@@ -17,7 +17,7 @@ type fakeNPM struct {
 func (f *fakeNPM) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/tokens", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(tokenResp{Token: "t0ken", Expires: 0})
+		json.NewEncoder(w).Encode(map[string]any{"token": "t0ken"})
 	})
 	mux.HandleFunc("/api/nginx/proxy-hosts", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer t0ken" {
@@ -74,5 +74,45 @@ func TestAdvancedConfigAlwaysEmpty(t *testing.T) {
 	}
 	if !h.BlockExploits {
 		t.Fatal("block_exploits must be server-pinned true")
+	}
+}
+
+func TestFlexTimeAcceptsEveryExpiresShape(t *testing.T) {
+	cases := map[string]bool{ // raw json -> expect a non-zero time
+		`1750000000`:             true,  // unix epoch number (original NPM)
+		`"1750000000"`:           true,  // numeric string
+		`"2026-07-13T00:00:00Z"`: true,  // RFC3339 string (NPMplus fork)
+		`null`:                   false, // absent -> zero, caller defaults to 30m
+		`"soon"`:                 false, // unknown shape -> zero, never an error
+	}
+	for raw, wantSet := range cases {
+		var f flexTime
+		if err := json.Unmarshal([]byte(raw), &f); err != nil {
+			t.Errorf("flexTime(%s) errored: %v (must never fail auth)", raw, err)
+			continue
+		}
+		if got := !f.t.IsZero(); got != wantSet {
+			t.Errorf("flexTime(%s) set=%v, want %v", raw, got, wantSet)
+		}
+	}
+}
+
+func TestAuthenticateWithStringExpires(t *testing.T) {
+	// The exact failure seen in the field: NPMplus returns expires as an ISO-8601 STRING and
+	// token minting must still succeed.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tokens" {
+			w.Write([]byte(`{"token":"tok","expires":"2099-01-01T00:00:00Z"}`))
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, "u", "p").Check(context.Background()); err != nil {
+		t.Fatalf("Check with string expires failed: %v", err)
 	}
 }
