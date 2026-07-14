@@ -47,6 +47,10 @@ gofmt -l .        # must not list any file
   agent, the verifier or the compose generator.
 - `website/` — the documentation site (Astro Starlight). See its pages under
   `website/src/content/docs/`.
+- `skills/statio-setup/SKILL.md` — the agent-facing setup + troubleshooting guide (for AI
+  coding agents like Claude). It mirrors statio behavior: any change to the statio.yaml schema,
+  Action inputs, CLI wizards, pipeline stages/error codes/hints, or server config keys must
+  update it **in the same commit**, exactly like the website docs.
 
 ## Security
 
