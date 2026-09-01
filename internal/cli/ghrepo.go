@@ -35,12 +35,12 @@ func inspectGitHubRepo(ctx context.Context, owner, repo string) repoInfo {
 		return r
 	}
 	if _, err := exec.LookPath("gh"); err != nil {
-		return repoInfo{Note: "private or not found, and gh isn't installed here — enter the details by hand"}
+		return repoInfo{Note: "private or not found, and gh is not installed here. Enter the details by hand."}
 	}
 	if r, ok := ghCLIRepo(ctx, owner, repo); ok {
 		return r
 	}
-	return repoInfo{GHInstalled: true, Note: "gh is installed but couldn't read the repo (not logged in, or no access) — enter the details by hand"}
+	return repoInfo{GHInstalled: true, Note: "gh is installed and could not read the repo. Log in, or check access, or enter the details by hand."}
 }
 
 // ghPublicRepo reads a repo from the unauthenticated GitHub API. A 200 there means it is public.

@@ -20,8 +20,11 @@ func newLogsCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "logs <service>",
-		Short: "Show the deploy audit log for a service (local file, or --target for a remote agent)",
-		Args:  cobra.ExactArgs(1),
+		Short: "Show a service's deploy history",
+		Long: "Reads the local audit log on the server, or a remote agent's over the tailnet with\n" +
+			"--target. Both are redacted: no secret ever reaches the log.",
+		Example: "  statio logs api --target statio.your-tailnet.ts.net",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			svc := args[0]
 			var recs []audit.Record

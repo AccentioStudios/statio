@@ -13,11 +13,11 @@ import (
 )
 
 func newAgentCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "agent", Short: "Run the deploy agent (server side)"}
+	cmd := &cobra.Command{Use: "agent", Short: "Run the deploy agent on this server"}
 	var configPath string
 	run := &cobra.Command{
 		Use:   "run",
-		Short: "Run the agent under systemd (ExecStart)",
+		Short: "Run the agent under systemd. The unit's ExecStart calls this.",
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {

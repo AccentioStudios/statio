@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       digest:
-        description: "Existing image digest to (re)deploy — use for rollback"
+        description: "Existing image digest to redeploy. Use it to roll back."
         required: false
 
 # id-token: keyless cosign (OIDC); packages: push to GHCR; contents: checkout.

@@ -15,6 +15,9 @@ import (
 func newEnvCmd() *cobra.Command {
 	var servicesDir string
 	cmd := &cobra.Command{Use: "env", Short: "Manage a service's server-side base env"}
+	cmd.Long = "Server-side env keys, merged into every deploy of that service. Use it for a value CI\n" +
+		"should never carry, or to rotate a leaked secret without a push.\n\n" +
+		"Guide: https://statio.accentio.dev/how-to/pass-secrets/"
 	cmd.PersistentFlags().StringVar(&servicesDir, "services-dir", "/etc/statio/services", "services directory")
 
 	basePath := func(svc string) string { return filepath.Join(servicesDir, svc, "env.base.yaml") }
@@ -22,7 +25,8 @@ func newEnvCmd() *cobra.Command {
 	var protected, required, secretStdin bool
 	set := &cobra.Command{
 		Use:     "set <service> KEY[=VALUE]",
-		Short:   "Set a base env key (value, or --secret-stdin for a secretRef)",
+		Short:   "Set a base env key, by value or from stdin",
+		Example: "  sudo statio env set api OPS_TOKEN --secret-stdin --protected",
 		Args:    cobra.ExactArgs(2),
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -51,7 +55,7 @@ func newEnvCmd() *cobra.Command {
 			} else {
 				k, v, ok := strings.Cut(args[1], "=")
 				if !ok {
-					return fmt.Errorf("expected KEY=VALUE (or use --secret-stdin)")
+					return fmt.Errorf("expected KEY=VALUE, or KEY with --secret-stdin")
 				}
 				e.Key = k
 				e.Value = &v
@@ -87,7 +91,7 @@ func newEnvCmd() *cobra.Command {
 
 	list := &cobra.Command{
 		Use:     "list <service>",
-		Short:   "List base env keys (secret/protected values are redacted)",
+		Short:   "List base env keys, with secret values redacted",
 		Args:    cobra.ExactArgs(1),
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {

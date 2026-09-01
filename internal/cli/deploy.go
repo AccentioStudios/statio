@@ -73,7 +73,7 @@ func (f *deployFlags) buildEnvelope(ctx context.Context) ([]byte, error) {
 		missing = append(missing, "--digest")
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("missing required input(s): %s — set them in the statio action's `with:` block", strings.Join(missing, ", "))
+		return nil, fmt.Errorf("missing required input(s): %s. Set them in the statio action's `with:` block", strings.Join(missing, ", "))
 	}
 	data, err := os.ReadFile(f.statioFile)
 	if err != nil {
@@ -113,7 +113,7 @@ func newDeployCmd() *cobra.Command {
 	var strict bool
 	cmd := &cobra.Command{
 		Use:   "deploy",
-		Short: "Build, cosign-sign, and send a deploy to the agent (used by the GitHub Action)",
+		Short: "Sign and send a deploy to the agent. The Action runs this.",
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(context.Background(), f.timeout+60*time.Second)
 			defer cancel()
@@ -138,12 +138,13 @@ func newPreflightCmd() *cobra.Command {
 	var f deployFlags
 	cmd := &cobra.Command{
 		Use:   "preflight",
-		Short: "Dry-run a deploy: check ports + reverse-proxy/DNS readiness on the server, mutate nothing",
-		Long: "Sends the SAME signed payload a deploy would, to the agent's read-only /preflight check.\n" +
-			"The agent verifies it can allocate the app's host port (no conflict with another app), and —\n" +
-			"if your statio.yaml asks for a public domain — that NPMplus is configured, reachable and the\n" +
-			"domain is allowlisted. It changes nothing on the server. Run it in CI before `deploy` to fail\n" +
-			"fast and cheap instead of crashing mid-deploy. Exit code is non-zero if any check fails.",
+		Short: "Dry-run a deploy: check ports and edge readiness, change nothing",
+		Long: "Sends the same signed payload a deploy would, to the agent's read-only /preflight\n" +
+			"endpoint. The agent checks it can allocate the app's host port, with no conflict\n" +
+			"against another app. When your statio.yaml asks for a public domain, it also checks\n" +
+			"NPMplus is configured and reachable and that the domain is allowlisted. It changes\n" +
+			"nothing on the server.\n\n" +
+			"The Action runs this before every deploy. A failed check exits non-zero.",
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(context.Background(), f.timeout+60*time.Second)
 			defer cancel()
@@ -197,7 +198,7 @@ func collectEnv(flags []string) (map[string]string, error) {
 		}
 		k, v, ok := strings.Cut(line, "=")
 		if !ok {
-			return fmt.Errorf("invalid env entry %q (want KEY=VALUE)", line)
+			return fmt.Errorf("invalid env entry %q: expected KEY=VALUE", line)
 		}
 		out[strings.TrimSpace(k)] = v
 		return nil
@@ -253,7 +254,7 @@ func exitForResult(res *deploy.Result, status int, strict bool) error {
 		return nil
 	case deploy.StateSuccessDegraded:
 		if strict {
-			return fmt.Errorf("deploy degraded (--strict)")
+			return fmt.Errorf("deploy degraded, and --strict is set")
 		}
 		return nil
 	}
@@ -289,24 +290,24 @@ func deployFailureHint(status int) string {
 	switch status {
 	case http.StatusForbidden: // 403
 		return "the agent rejected the signature. The cosign signer pinned by `statio app add` must " +
-			"match your workflow's signing identity EXACTLY — owner/repo is case-sensitive " +
+			"match your workflow's signing identity exactly. owner/repo is case-sensitive. " +
 			"(e.g. AccentioStudios, not accentiostudios), plus the workflow file and branch. " +
 			"Check it with `statio app list` and fix it with `statio app edit <service>`. " +
 			"(Other 403 causes: the deploy's audience ≠ the agent host, or an expired/replayed payload.)"
 	case http.StatusNotFound: // 404
-		return "that service isn't accepted on the server — run `sudo statio app add <service>`. " +
+		return "that service is not accepted on the server. Run `sudo statio app add <service>`. " +
 			"The name must match `service:` in the workflow AND `name:` in statio.yaml."
 	case http.StatusConflict: // 409
-		return "replayed/old deploy sequence — this payload is older than one already applied."
+		return "replayed or old deploy sequence: this payload is older than one already applied."
 	case http.StatusRequestEntityTooLarge: // 413
-		return "the payload is too large — check your statio.yaml isn't enormous."
+		return "the payload is too large. Check the size of your statio.yaml."
 	case http.StatusUnprocessableEntity: // 422
 		return "an env value was rejected (a protected key, or a required value missing)."
 	case http.StatusBadRequest: // 400
-		return "the deploy spec was rejected — check your statio.yaml and the action inputs."
+		return "the deploy spec was rejected. Check your statio.yaml and the action inputs."
 	default:
 		if status >= 500 {
-			return "the agent errored — check `sudo journalctl -u statio-agent` on the server."
+			return "the agent errored. Read `sudo journalctl -u statio-agent` on the server."
 		}
 		return ""
 	}

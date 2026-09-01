@@ -1,4 +1,4 @@
-# statio.yaml — what to deploy (lives in your repo). The Action reads this, signs it, and
+# statio.yaml: what to deploy. It lives in your repo. The Action reads it, signs it, and
 # sends it; the agent generates a safe compose from it. Secrets are NOT here: list env KEY
 # names and provide the VALUES from GitHub Secrets via the workflow's `env:` input.
 services:
@@ -18,7 +18,7 @@ services:
   #     - { name: pgdata, path: /var/lib/postgresql/data }
 
 # Optional public domain. The agent wires NPMplus + Cloudflare with its OWN creds and resolves
-# the forward target itself (host loopback port, or your app's container name — set on the server
+# the forward target itself: the host loopback port, or your app's container name, set on the server
 # with `statio init integrations`), so you only declare the domain:
 # proxy:
 #   domain: {{.Service}}.example.com

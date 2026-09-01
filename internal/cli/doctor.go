@@ -23,7 +23,12 @@ func newDoctorCmd(version string) *cobra.Command {
 	var fix bool
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check your environment for common problems (and fix some with --fix)",
+		Short: "Check this machine for common problems, and repair some",
+		Long: "Reports the binary version, docker and its login, git, gh and its login, cosign, the\n" +
+			"agent config and the secret files it points at, the state dir, the service, and GitHub\n" +
+			"reachability. Run it with sudo on a server. --fix applies the safe repairs.\n\n" +
+			"Guide: https://statio.accentio.dev/how-to/upgrade-statio/",
+		Example: "  sudo statio doctor --fix",
 		RunE: func(c *cobra.Command, _ []string) error {
 			banner("statio doctor", "environment diagnostics")
 			ok := true
@@ -45,11 +50,11 @@ func newDoctorCmd(version string) *cobra.Command {
 			case ok:
 				okLine("all good")
 			case needsSudo:
-				warnLine("re-run `sudo statio doctor --fix` to apply the fixes that need root")
+				warnLine("re-run `sudo statio doctor --fix` to apply the repairs that need root")
 			case !fix:
-				warnLine("review the items above; `sudo statio doctor --fix` can resolve some automatically")
+				warnLine("review the items above. `sudo statio doctor --fix` resolves some of them.")
 			default:
-				warnLine("some items still need attention — see above")
+				warnLine("some items still need attention. See above.")
 			}
 			return nil
 		},
@@ -74,11 +79,11 @@ func isServer() bool {
 // so its absence is not a problem to flag here.
 func doctorCosign() {
 	if isServer() {
-		info("cosign: not needed on the server (the Action installs and runs it in CI)")
+		info("cosign: not needed on the server. The Action installs and runs it in CI.")
 		return
 	}
 	if _, err := exec.LookPath("cosign"); err != nil {
-		info("cosign: not installed locally — the Action installs it in CI, so this is usually fine")
+		info("cosign: not installed here. The Action installs it in CI, so this is fine.")
 		return
 	}
 	okLine("cosign installed")
@@ -92,7 +97,7 @@ func doctorState(fix, root bool, ok, needsSudo *bool) {
 		return
 	}
 	if !root {
-		info("server detected — run `sudo statio doctor` for the full check (config, docker login, service need root)")
+		info("server detected. Run `sudo statio doctor` for the full check: the config, the docker login and the service all need root.")
 	}
 	const stateDir = "/var/lib/statio"
 	missing := false
@@ -107,12 +112,12 @@ func doctorState(fix, root bool, ok, needsSudo *bool) {
 				missing = true
 			}
 		case fix && !root:
-			failLine("%s is missing — re-run `sudo statio doctor --fix` to create it (needs root)", stateDir)
+			failLine("%s is missing. Re-run `sudo statio doctor --fix` to create it, as root.", stateDir)
 			*ok = false
 			*needsSudo = true
 			missing = true
 		default:
-			failLine("%s is missing — the agent crash-loops with 226/NAMESPACE. Run `sudo statio doctor --fix`", stateDir)
+			failLine("%s is missing, so the agent crash-loops with 226/NAMESPACE. Run `sudo statio doctor --fix`", stateDir)
 			*ok = false
 			missing = true
 		}
@@ -143,17 +148,17 @@ func doctorState(fix, root bool, ok, needsSudo *bool) {
 		case fix && root && !missing:
 			_ = exec.Command("systemctl", "daemon-reload").Run()
 			if err := exec.Command("systemctl", "restart", "statio-agent").Run(); err == nil {
-				okLine("fixed: restarted statio-agent (verify with `systemctl status statio-agent`)")
+				okLine("fixed: restarted statio-agent. Confirm with `systemctl status statio-agent`.")
 			} else {
-				warnLine("statio-agent: %s — restart failed: %v (see `journalctl -xeu statio-agent`)", state, err)
+				warnLine("statio-agent: %s. The restart failed: %v. Read `journalctl -xeu statio-agent`.", state, err)
 				*ok = false
 			}
 		case fix && !root:
-			warnLine("statio-agent service: %s — re-run `sudo statio doctor --fix` to restart it (needs root)", state)
+			warnLine("statio-agent service: %s. Re-run `sudo statio doctor --fix` to restart it, as root.", state)
 			*ok = false
 			*needsSudo = true
 		default:
-			warnLine("statio-agent service: %s — see `journalctl -xeu statio-agent` (or `sudo statio doctor --fix`)", state)
+			warnLine("statio-agent service: %s. Read `journalctl -xeu statio-agent`, or run `sudo statio doctor --fix`.", state)
 			*ok = false
 		}
 	}
@@ -213,7 +218,7 @@ func pickAgentLogLine(blob string) string {
 func doctorVersion(version string) {
 	line := fmt.Sprintf("statio %s · %s/%s", version, runtime.GOOS, runtime.GOARCH)
 	if !selfupdate.IsVersion(version) {
-		warnLine("%s (development build — no version check)", line)
+		warnLine("%s. Development build, so no version check.", line)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -224,7 +229,7 @@ func doctorVersion(version string) {
 		return
 	}
 	if selfupdate.Outdated(version, latest) {
-		warnLine("%s — a new one is available: %s (run `statio upgrade`)", line, latest)
+		warnLine("%s. Version %s is available: run `statio upgrade`.", line, latest)
 	} else {
 		okLine("%s (latest)", line)
 	}
@@ -232,13 +237,13 @@ func doctorVersion(version string) {
 
 func doctorDocker(ok *bool) {
 	if out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output(); err == nil {
-		okLine("docker %s — daemon reachable", strings.TrimSpace(string(out)))
+		okLine("docker %s, daemon reachable", strings.TrimSpace(string(out)))
 		return
 	}
 	if _, err := exec.LookPath("docker"); err == nil {
-		failLine("docker installed but the daemon is not responding (is it running? socket permissions?)")
+		failLine("docker is installed and its daemon does not answer. Check it is running, and check the socket permissions.")
 	} else {
-		failLine("docker not found — required on the server")
+		failLine("docker not found. The server needs it.")
 	}
 	*ok = false
 }
@@ -247,13 +252,13 @@ func doctorDocker(ok *bool) {
 // does (as $SUDO_USER when run as root), so the result reflects what private-repo detection sees.
 func doctorGH() {
 	if _, err := exec.LookPath("gh"); err != nil {
-		warnLine("gh not found — needed for `gh secret set` and auto-detecting private repos in `statio app add`")
+		warnLine("gh not found. `gh secret set` and private-repo detection in `statio app add` need it.")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := ghCommand(ctx, "auth", "status").Run(); err != nil {
-		warnLine("gh installed but NOT logged in (`gh auth login`) — private-repo detection in `app add` falls back to manual entry")
+		warnLine("gh is installed and not logged in. Run `gh auth login`, or type the branch by hand in `app add`.")
 		return
 	}
 	okLine("gh installed and logged in")
@@ -262,9 +267,9 @@ func doctorGH() {
 func doctorTool(name, hint string, optional bool, ok *bool) {
 	if _, err := exec.LookPath(name); err != nil {
 		if optional {
-			warnLine("%s not found — %s", name, hint)
+			warnLine("%s not found. %s", name, hint)
 		} else {
-			failLine("%s not found — %s", name, hint)
+			failLine("%s not found. %s", name, hint)
 			*ok = false
 		}
 		return
@@ -273,15 +278,15 @@ func doctorTool(name, hint string, optional bool, ok *bool) {
 	if out, err := exec.Command(name, "--version").Output(); err == nil {
 		ver = " " + strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
 	}
-	okLine("%s%s — %s", name, ver, hint)
+	okLine("%s%s. %s", name, ver, hint)
 }
 
 func doctorConfig(path string, fix, root bool, ok, needsSudo *bool) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsPermission(err) || isServer() {
-			info("agent config: %s present but not readable here — run `sudo statio doctor` to validate it", path)
+			info("agent config: %s is present and not readable here. Run `sudo statio doctor` to validate it.", path)
 		} else {
-			info("agent config: %s does not exist (normal if this machine is not the server)", path)
+			info("agent config: %s does not exist. Expected, unless this machine is the server.", path)
 		}
 		return
 	}
@@ -310,7 +315,7 @@ func doctorSecretFiles(cfg *config.Config, fix, root bool, ok, needsSudo *bool) 
 	for _, p := range files {
 		if _, err := os.Stat(p); err != nil {
 			if os.IsNotExist(err) {
-				failLine("secret file missing: %s — the agent crash-loops at boot (`stat %s: no such file`). %s", p, p, regenHint(p))
+				failLine("secret file missing: %s. The agent crash-loops at boot with `stat %s: no such file`. %s", p, p, regenHint(p))
 			} else {
 				failLine("secret file %s: %v", p, err)
 			}
@@ -326,13 +331,13 @@ func doctorSecretFiles(cfg *config.Config, fix, root bool, ok, needsSudo *bool) 
 						continue
 					}
 				}
-				failLine("secret file %s: %v (auto-fix failed — fix it by hand)", p, err)
+				failLine("secret file %s: %v. The repair failed, so fix it by hand.", p, err)
 				*ok, allOK = false, false
 			case fix && !root:
-				failLine("secret file %s: %v — re-run `sudo statio doctor --fix` to secure it (needs root)", p, err)
+				failLine("secret file %s: %v. Re-run `sudo statio doctor --fix` to secure it, as root.", p, err)
 				*ok, allOK, *needsSudo = false, false, true
 			default:
-				failLine("secret file %s: %v — `sudo statio doctor --fix` can secure it", p, err)
+				failLine("secret file %s: %v. `sudo statio doctor --fix` secures it.", p, err)
 				*ok, allOK = false, false
 			}
 			continue

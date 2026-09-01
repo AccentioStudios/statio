@@ -13,7 +13,7 @@ import (
 func Execute(version string) error {
 	root := &cobra.Command{
 		Use:           "statio",
-		Short:         "Deploy to a self-hosted server without SSH or a public port",
+		Short:         "Deploy to your own server without SSH or a public port",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
@@ -31,7 +31,7 @@ func Execute(version string) error {
 		&cobra.Group{ID: "apps", Title: "Apps & config (on the server):"},
 		&cobra.Group{ID: "operate", Title: "Operate (from a machine on the tailnet):"},
 		&cobra.Group{ID: "maint", Title: "Maintenance:"},
-		&cobra.Group{ID: "internal", Title: "Internal (run by systemd & the GitHub Action — not by hand):"},
+		&cobra.Group{ID: "internal", Title: "Internal (run by systemd and the GitHub Action, not by hand):"},
 	)
 	grouped := func(id string, c *cobra.Command) *cobra.Command { c.GroupID = id; return c }
 
@@ -44,9 +44,10 @@ func Execute(version string) error {
 		grouped("maint", newUpgradeCmd(version)),
 		grouped("maint", newDoctorCmd(version)),
 		grouped("maint", &cobra.Command{
-			Use:   "version",
-			Short: "Print the statio version",
-			Run:   func(c *cobra.Command, _ []string) { c.Println("statio", version) },
+			Use:     "version",
+			Short:   "Print the statio version",
+			Example: "  statio version",
+			Run:     func(c *cobra.Command, _ []string) { c.Println("statio", version) },
 		}),
 		grouped("internal", newAgentCmd()),
 		grouped("internal", newDeployCmd()),
@@ -73,7 +74,7 @@ func maybeNudgeUpdate(c *cobra.Command, current string) {
 	if !ok || !selfupdate.Outdated(current, latest) {
 		return
 	}
-	warnLine("a new version of statio is available: %s → %s", current, latest)
+	warnLine("statio %s is available. You run %s.", latest, current)
 	info("  upgrade with:  statio upgrade")
 }
 

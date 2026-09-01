@@ -34,7 +34,7 @@ func newUpgradeCmd(current string) *cobra.Command {
 	var checkOnly, assumeYes, noRestart bool
 	cmd := &cobra.Command{
 		Use:   "upgrade",
-		Short: "Update statio to the latest release (self-update)",
+		Short: "Update statio to the latest release",
 		Long: "Downloads the latest statio release, verifies its checksum and replaces\n" +
 			"the current binary. Re-runnable: does nothing if you are already up to date.",
 		RunE: func(c *cobra.Command, _ []string) error {

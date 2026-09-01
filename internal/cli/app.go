@@ -20,7 +20,7 @@ import (
 // from different repos/orgs), and its domain allowlists. A signed deploy can only target an
 // already-accepted app — standing one up is never a side effect of a payload (invariant #18).
 func newAppCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "app", Short: "Manage the apps allowed to deploy to this server"}
+	cmd := &cobra.Command{Use: "app", Short: "Manage the apps this server accepts deploys for"}
 	cmd.AddCommand(newAppAddCmd(), newAppListCmd(), newAppEditCmd(), newAppRmCmd())
 	return cmd
 }
@@ -35,14 +35,19 @@ func newAppAddCmd() *cobra.Command {
 		repoFlag, workflowFlag, branchFlag, issuer      string
 	)
 	cmd := &cobra.Command{
-		Use:     "add [name]",
-		Short:   "Accept an app: pin its image repo, signer identity and domains",
+		Use:   "add [name]",
+		Short: "Accept an app and pin its image repo, signer and domains",
+		Long: "Authorises one app on this server. It pins the image repository, the cosign signer\n" +
+			"(owner, repo, workflow, branch) and the domain suffixes the app may claim. Run it once\n" +
+			"per app; apps can come from different repos and organisations.\n\n" +
+			"Guide: https://statio.accentio.dev/how-to/add-an-app/",
+		Example: "  sudo statio app add api",
 		Args:    cobra.MaximumNArgs(1),
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
 			// app add only makes sense once the agent is configured — refuse before init server.
 			if _, err := os.Stat(filepath.Join(filepath.Dir(servicesDir), "config.yaml")); err != nil {
-				return fmt.Errorf("this server isn't set up yet — run 'sudo statio init server' first")
+				return fmt.Errorf("this server is not set up yet. Run 'sudo statio init server' first")
 			}
 			if issuer == "" {
 				issuer = "https://token.actions.githubusercontent.com"
@@ -62,30 +67,30 @@ func newAppAddCmd() *cobra.Command {
 			}
 
 			if interactive() && (name == "" || image == "" || identity == "") {
-				banner("statio · app add", "Accept an app: pin its image, its signer repo and its domains")
+				banner("statio · app add", "Accept an app and pin its image, its signer repo and its domains")
 				if name == "" {
-					if err := runForm(serviceNameField("App name", "The slot CI deploys to (e.g. api). Lowercase letters, digits and dashes — no underscores.", "api", &name)); err != nil {
+					if err := runForm(serviceNameField("App name", "The slot CI deploys to, such as api. Lowercase letters, digits and dashes, no underscores.", "api", &name)); err != nil {
 						return err
 					}
 				}
 
 				// 1. Ask the signer source repo FIRST — detecting its visibility lets us pre-fill the
 				//    branch and infer the image path instead of asking for them blind.
-				sectionTitle("Who can deploy this app? (cosign signing)")
-				info("The GitHub repo + workflow + branch that signs THIS app's deploys. Each app can")
-				info("come from a different repo or organization — that's why it's asked here, per app.")
+				sectionTitle("Who can deploy this app?")
+				info("Name the GitHub repo, workflow and branch that sign this app's deploys. Each app")
+				info("pins its own, so apps can come from different repos and organisations.")
 				repoInput, wf, branch := repoFlag, workflowFlag, branchFlag
 				if wf == "" {
 					wf = "deploy.yml"
 				}
 				repoField := huh.NewInput().
 					Title("This app's GitHub repository").
-					Description("owner/repo (not just the organization). E.g. accentiostudios/api. You can also paste the URL.").
+					Description("owner/repo, not the organisation alone. For example accentiostudios/api. A URL works too.").
 					Placeholder("accentiostudios/api").
 					Value(&repoInput).
 					Validate(func(s string) error {
 						if _, _, err := parseOwnerRepo(s); err != nil {
-							return fmt.Errorf("enter owner/repo (e.g. accentiostudios/api), not just the organization")
+							return fmt.Errorf("enter owner/repo, such as accentiostudios/api, not the organisation alone")
 						}
 						return nil
 					})
@@ -104,12 +109,12 @@ func newAppAddCmd() *cobra.Command {
 				switch {
 				case ri.Known && ri.Private:
 					okLine("Repo %s/%s: PRIVATE (via %s), default branch %q", owner, repo, ri.Source, ri.DefaultBranch)
-					info("Private image → the CI forwards a short-lived pull token with each deploy; the agent")
-					info("needs no stored credential. Just grant `packages: write` in the workflow permissions.")
+					info("Private image: CI forwards a short-lived pull token with each deploy, so the agent")
+					info("stores no credential. Grant `packages: write` in the workflow permissions.")
 				case ri.Known:
 					okLine("Repo %s/%s: PUBLIC, default branch %q", owner, repo, ri.DefaultBranch)
 				default:
-					warnLine("Couldn't auto-detect the repo: %s", ri.Note)
+					warnLine("No repo details detected: %s", ri.Note)
 				}
 				// Pin GitHub's EXACT owner/repo casing: the cosign identity in the OIDC cert uses it
 				// (e.g. AccentioStudios), and verify is case-sensitive — a lowercased name the user
@@ -117,7 +122,7 @@ func newAppAddCmd() *cobra.Command {
 				if ri.Known && ri.FullName != "" {
 					if co, cr, err := parseOwnerRepo(ri.FullName); err == nil {
 						if co != owner || cr != repo {
-							info("Using GitHub's exact casing %s/%s (cosign verify is case-sensitive)", co, cr)
+							info("Using GitHub's exact casing %s/%s. cosign matches case for case.", co, cr)
 						}
 						owner, repo = co, cr
 					}
@@ -142,7 +147,7 @@ func newAppAddCmd() *cobra.Command {
 					useGHCR := true
 					if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().
 						Title(fmt.Sprintf("Image on GitHub Container Registry under this repo? (%s)", ghcrImage(owner, repo))).
-						Description("Yes = GHCR in the same repo (inferred). No = paste a Docker Hub / other registry path.").
+						Description("Yes uses GHCR under the same repo. No lets you paste a Docker Hub or other registry path.").
 						Affirmative("Yes, use ghcr").
 						Negative("No, paste another").
 						Value(&useGHCR))).WithTheme(huh.ThemeCharm()).Run(); err != nil {
@@ -150,7 +155,7 @@ func newAppAddCmd() *cobra.Command {
 					}
 					if useGHCR {
 						image = ghcrImage(owner, repo)
-						info("Image repository: %s (needn't exist yet — your CI pushes it)", image)
+						info("Image repository: %s. It need not exist yet; your CI pushes it.", image)
 					} else if err := runForm(inputField("Image repository",
 						"Where your CI pushes the image (needn't exist yet). E.g. docker.io/your-org/api",
 						"ghcr.io/your-org/api", &image, true)); err != nil {
@@ -184,7 +189,7 @@ func newAppAddCmd() *cobra.Command {
 					suffix, upstream := "", name
 					if err := runForm(
 						inputField("Allowed domain suffix", "Only domains under this suffix are accepted (anti-hijack). E.g. example.com", "example.com", &suffix, true),
-						serviceNameField("Upstream (target container)", "The service the proxy points to (a service name — usually this app).", name, &upstream),
+						serviceNameField("Upstream (target container)", "The service the proxy points to. A service name, usually this app.", name, &upstream),
 					); err != nil {
 						return err
 					}
@@ -193,16 +198,16 @@ func newAppAddCmd() *cobra.Command {
 			}
 
 			if name == "" {
-				return fmt.Errorf("missing app name (e.g. statio app add api)")
+				return fmt.Errorf("missing app name, such as: statio app add api")
 			}
 			if !validServiceName(name) {
-				return fmt.Errorf("invalid app name %q: use lowercase letters, digits and dashes, start with a letter, max 31 chars — no underscores (e.g. %s)", name, strings.ReplaceAll(name, "_", "-"))
+				return fmt.Errorf("invalid app name %q: use lowercase letters, digits and dashes, starting with a letter, 31 characters max. No underscores. Try %s", name, strings.ReplaceAll(name, "_", "-"))
 			}
 			if image == "" {
-				return fmt.Errorf("--image (your image repo) is required")
+				return fmt.Errorf("--image is required: your image repository")
 			}
 			if identity == "" {
-				return fmt.Errorf("--repo (the app's signing identity) is required")
+				return fmt.Errorf("--repo is required: the app's signing identity")
 			}
 
 			path, err := writeAppManifest(servicesDir, appManifest{
@@ -221,9 +226,9 @@ func newAppAddCmd() *cobra.Command {
 			if target == "" {
 				target = readAudience(stateDir)
 			}
-			sectionTitle("In your repo 💻 — two things CI needs (run `statio init repo` to scaffold both)")
-			info("1) statio.yaml at the repo ROOT — the deploy reads it; without it CI fails with")
-			info("   `open statio.yaml: no such file`. Minimal for %q (declare your real ports + env):", name)
+			sectionTitle("In your repo 💻 · two things CI needs. `statio init repo` writes both.")
+			info("1) statio.yaml at the repo root. The deploy reads it, and without it CI fails with")
+			info("   `open statio.yaml: no such file`. Minimal for %q, with your real ports and env:", name)
 			codeBlock(
 				"services:",
 				"  - name: "+name+"          # must match this app",
@@ -233,8 +238,8 @@ func newAppAddCmd() *cobra.Command {
 			info("2) the workflow step (this is also what `statio init repo` writes):")
 			printSnippet(targetOrPlaceholder(target), name, image, actionRef)
 			if target == "" {
-				info("(Couldn't read the agent's address yet — it appears once the agent finishes joining")
-				info(" the tailnet. Get it with 'statio status' and replace the target placeholder above.)")
+				info("The agent's address is not readable yet. It appears once the agent finishes joining")
+				info("the tailnet. Read it with 'statio status' and replace the target above.")
 			}
 
 			// CI joins with its own tag:ci OAuth client (Tailscale console); we just remind the user
@@ -245,7 +250,7 @@ func newAppAddCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&image, "image", "", "your image repo (repo-equality anchor)")
-	f.StringVar(&repoFlag, "repo", "", "owner/repo or URL — this app's signing identity")
+	f.StringVar(&repoFlag, "repo", "", "owner/repo or URL: this app's signing identity")
 	f.StringVar(&workflowFlag, "workflow", "deploy.yml", "workflow file (with --repo)")
 	f.StringVar(&branchFlag, "branch", "main", "authorized branch (with --repo)")
 	f.StringVar(&issuer, "issuer", "", "cosign OIDC issuer")
@@ -266,7 +271,8 @@ func newAppListCmd() *cobra.Command {
 	var servicesDir, stateDir, actionRef string
 	cmd := &cobra.Command{
 		Use:     "list",
-		Short:   "List the accepted apps; pick one to view or edit its config",
+		Short:   "List accepted apps, then view or edit one",
+		Example: "  sudo statio app list",
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, _ []string) error {
 			names, err := listAcceptedApps(servicesDir)
@@ -274,7 +280,7 @@ func newAppListCmd() *cobra.Command {
 				return err
 			}
 			if len(names) == 0 {
-				info("No apps accepted yet (run 'statio app add').")
+				info("No apps accepted yet. Run 'sudo statio app add'.")
 				return nil
 			}
 			for _, n := range names {
@@ -301,7 +307,7 @@ func newAppListCmd() *cobra.Command {
 			}
 			action := "view"
 			if err := huh.NewForm(huh.NewGroup(huh.NewSelect[string]().
-				Title(fmt.Sprintf("%s — view or edit?", choice)).
+				Title(fmt.Sprintf("%s: view or edit?", choice)).
 				Options(
 					huh.NewOption("View config + setup steps", "view"),
 					huh.NewOption("Edit config (re-run the wizard)", "edit"),
@@ -347,7 +353,8 @@ func newAppRmCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "rm <name>",
-		Short:   "Remove an accepted app (stops accepting its deploys)",
+		Short:   "Stop accepting an app and free its host port",
+		Example: "  sudo statio app rm api",
 		Args:    cobra.ExactArgs(1),
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -374,7 +381,7 @@ func newAppRmCmd() *cobra.Command {
 			// Return the slot's allocated host port to the pool, so a churned/re-added app never
 			// leaks a port (the registry is the single allocator; without this the pool drains).
 			if err := releaseSlotPort(stateDir, name); err != nil {
-				warnLine("removed the app, but could not free its host port: %v", err)
+				warnLine("Removed the app. Could not free its host port: %v", err)
 			}
 			okLine("App %q removed.", name)
 			return nil
@@ -511,7 +518,7 @@ func showAppDetails(servicesDir, stateDir, actionRef, name string) error {
 	}
 
 	target := readAudience(stateDir)
-	sectionTitle("In your repo 💻 — the workflow step")
+	sectionTitle("In your repo 💻 · the workflow step")
 	printSnippet(targetOrPlaceholder(target), name, seed.image, actionRef)
 	// CI joins with its own tag:ci OAuth client; show the two secrets with the repo filled.
 	printCISecrets(repoFromIdentity(seed.identity))
@@ -529,7 +536,7 @@ func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
 	if err != nil {
 		return err
 	}
-	banner("statio · app edit", fmt.Sprintf("Edit %s — current values are pre-filled; change what you need", name))
+	banner("statio · app edit", fmt.Sprintf("Edit %s. Current values are filled in; change what you need.", name))
 
 	// Allow renaming the slot (validated like any service name). The rename itself is applied
 	// below, just before writing — after a warning + confirm.
@@ -552,12 +559,12 @@ func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
 	}
 	repoField := huh.NewInput().
 		Title("This app's GitHub repository").
-		Description("owner/repo (the repo that signs this app's deploys)").
+		Description("owner/repo: the repo that signs this app's deploys.").
 		Placeholder("accentiostudios/api").
 		Value(&repoInput).
 		Validate(func(s string) error {
 			if _, _, err := parseOwnerRepo(s); err != nil {
-				return fmt.Errorf("enter owner/repo (e.g. accentiostudios/api)")
+				return fmt.Errorf("enter owner/repo, such as accentiostudios/api")
 			}
 			return nil
 		})
@@ -602,7 +609,7 @@ func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
 		}
 		if err := runForm(
 			inputField("Allowed domain suffix", "Only domains under this suffix are accepted. E.g. example.com", "example.com", &suffix, true),
-			serviceNameField("Upstream (target container)", "The service the proxy points to (a service name — usually this app).", name, &upstream),
+			serviceNameField("Upstream (target container)", "The service the proxy points to. A service name, usually this app.", name, &upstream),
 		); err != nil {
 			return err
 		}
@@ -617,12 +624,12 @@ func editAppInteractive(servicesDir, stateDir, actionRef, name string) error {
 	if newName != name {
 		newDir := filepath.Join(servicesDir, newName)
 		if _, err := os.Stat(newDir); err == nil {
-			return fmt.Errorf("can't rename to %q: an app with that name already exists", newName)
+			return fmt.Errorf("cannot rename to %q: an app with that name exists", newName)
 		}
-		warnLine("Renaming %q → %q changes the deploy slot:", name, newName)
+		warnLine("Renaming %q to %q changes the deploy slot:", name, newName)
 		info("  • update your workflow `service: %s` and statio.yaml `name: %s` to match", newName, newName)
 		info("  • the old name %q stops being accepted", name)
-		info("  • env set with `statio env` moves with it; GitHub secrets/vars are unaffected")
+		info("  • env keys set with `statio env` move with it. GitHub secrets stay as they are.")
 		ok, err := confirm("Proceed with the rename?")
 		if err != nil {
 			return err
@@ -652,13 +659,14 @@ func newAppEditCmd() *cobra.Command {
 	var servicesDir, stateDir, actionRef string
 	cmd := &cobra.Command{
 		Use:     "edit <name>",
-		Short:   "Re-run the wizard to change an accepted app's config",
+		Short:   "Change an accepted app's config, with current values filled in",
+		Example: "  sudo statio app edit api",
 		Args:    cobra.ExactArgs(1),
 		PreRunE: rootPreRun,
 		RunE: func(c *cobra.Command, args []string) error {
 			name := args[0]
 			if _, err := os.Stat(filepath.Join(servicesDir, name, "manifest.yaml")); err != nil {
-				return fmt.Errorf("app %q is not accepted yet (run 'statio app add %s')", name, name)
+				return fmt.Errorf("app %q is not accepted yet. Run 'sudo statio app add %s'", name, name)
 			}
 			return editAppInteractive(servicesDir, stateDir, actionRef, name)
 		},
@@ -687,9 +695,9 @@ func printCISecrets(repoArg string) {
 	if repoArg == "" {
 		repoArg = "<owner>/<repo>"
 	}
-	sectionTitle("GitHub secrets 💻 — on YOUR machine (gh logged in), not this server")
-	info("CI's tag:ci OAuth client (same pair for every repo — set once org-wide if you prefer), plus")
-	info("this app's env values:")
+	sectionTitle("GitHub secrets 💻 · on your machine, with gh logged in, not on this server")
+	info("CI's tag:ci OAuth client, the same pair for every repo, plus this app's env values.")
+	info("Set the OAuth pair org-wide if you prefer:")
 	codeBlock(
 		"gh secret set STATIO_TS_OAUTH_CLIENT_ID --repo "+repoArg+" --body '<CI tag:ci OAuth client id>'",
 		"gh secret set STATIO_TS_OAUTH_SECRET    --repo "+repoArg+" --body '<CI tag:ci OAuth client secret>'",
