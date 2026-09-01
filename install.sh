@@ -1,13 +1,13 @@
 #!/bin/sh
-# Instalador / actualizador de statio (estilo curl | sh):
+# statio installer and updater, in the curl | sh style:
 #
 #   curl -fsSL https://raw.githubusercontent.com/accentiostudios/statio/main/install.sh | sudo sh
 #
-# Re-ejecutarlo ACTUALIZA statio solo si hay una versión más nueva: si ya tienes
-# la última, no descarga nada. Variables opcionales:
-#   STATIO_VERSION=v1.2.3   instala/actualiza a una versión concreta (default: latest)
-#   STATIO_BINDIR=/usr/bin  directorio de instalación (default: /usr/local/bin)
-#   STATIO_FORCE=1          (re)instala aunque ya tengas la versión objetivo
+# Re-running it updates statio only when a newer version exists: with the latest
+# already installed, it downloads nothing. Optional variables:
+#   STATIO_VERSION=v1.2.3   install or update to an exact version (default: latest)
+#   STATIO_BINDIR=/usr/bin  install directory (default: /usr/local/bin)
+#   STATIO_FORCE=1          install even when the target version is already there
 set -eu
 
 REPO="accentiostudios/statio"
@@ -20,42 +20,42 @@ arch="$(uname -m)"
 case "$arch" in
   x86_64|amd64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
-  *) echo "statio: arquitectura no soportada: $arch" >&2; exit 1 ;;
+  *) echo "statio: unsupported architecture: $arch" >&2; exit 1 ;;
 esac
 case "$os" in
   linux|darwin) ;;
-  *) echo "statio: sistema no soportado: $os" >&2; exit 1 ;;
+  *) echo "statio: unsupported system: $os" >&2; exit 1 ;;
 esac
 
-# Resolver el tag objetivo. Para "latest" seguimos el redirect de GitHub
-# (.../releases/latest -> .../releases/tag/<tag>) para conocer la versión real.
+# Resolve the target tag. For "latest" we follow GitHub's redirect
+# (.../releases/latest -> .../releases/tag/<tag>) to learn the real version.
 if [ "$VERSION" = "latest" ]; then
   target="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
     "https://github.com/${REPO}/releases/latest" 2>/dev/null | sed -n 's#.*/releases/tag/##p')"
-  [ -n "$target" ] || target="latest"   # fallback si no se pudo resolver
+  [ -n "$target" ] || target="latest"   # fallback when the redirect gives us nothing
 else
   target="$VERSION"
 fi
 
-# Versión ya instalada (si la hay): `statio version` imprime "statio vX.Y.Z".
+# The version already installed, if any: `statio version` prints "statio vX.Y.Z".
 installed=""
 if command -v statio >/dev/null 2>&1; then
   installed="$(statio version 2>/dev/null | awk '{print $2}')"
 fi
 
-# ¿Hace falta actualizar? Sólo nos ponemos "inteligentes" cuando conocemos el
-# tag objetivo concreto (no "latest") y no se forzó la reinstalación.
+# Does anything need updating? We only compare when we know the exact target tag
+# (not "latest") and the caller did not force a reinstall.
 if [ -n "$installed" ] && [ "$target" != "latest" ] && [ -z "$FORCE" ]; then
   if [ "$installed" = "$target" ]; then
-    echo "statio ya está en la última versión ($installed). Nada que hacer."
-    echo "  (STATIO_FORCE=1 para reinstalar)"
+    echo "statio is already at the latest version ($installed). Nothing to do."
+    echo "  (STATIO_FORCE=1 reinstalls it)"
     exit 0
   fi
-  # ¿installed >= target? (orden de versiones con sort -V; si no está, instala igual)
+  # Is installed >= target? Version order via sort -V; without it, install anyway.
   newest="$(printf '%s\n%s\n' "$installed" "$target" | sort -V 2>/dev/null | tail -n1)"
   if [ "$newest" = "$installed" ]; then
-    echo "statio instalado ($installed) ya es >= objetivo ($target). Nada que hacer."
-    echo "  (STATIO_FORCE=1 para forzar)"
+    echo "The installed statio ($installed) is already >= the target ($target). Nothing to do."
+    echo "  (STATIO_FORCE=1 forces it)"
     exit 0
   fi
 fi
@@ -71,17 +71,17 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 if [ -n "$installed" ]; then
-  echo "Actualizando statio ${installed} → ${target} (${os}/${arch})..."
+  echo "Updating statio ${installed} to ${target} (${os}/${arch})..."
 else
-  echo "Instalando statio ${target} (${os}/${arch})..."
+  echo "Installing statio ${target} (${os}/${arch})..."
 fi
 curl -fsSL "${base}/${asset}" -o "${tmp}/statio"
 curl -fsSL "${base}/checksums.txt" -o "${tmp}/checksums.txt"
 
-echo "Verificando checksum..."
+echo "Verifying the checksum..."
 expected="$(grep " ${asset}\$" "${tmp}/checksums.txt" | awk '{print $1}')"
 if [ -z "$expected" ]; then
-  echo "statio: no se encontró el checksum de ${asset}" >&2
+  echo "statio: no checksum found for ${asset}" >&2
   exit 1
 fi
 if command -v sha256sum >/dev/null 2>&1; then
@@ -90,32 +90,32 @@ else
   actual="$(shasum -a 256 "${tmp}/statio" | awk '{print $1}')"
 fi
 if [ "$expected" != "$actual" ]; then
-  echo "statio: el checksum no coincide (esperado $expected, obtenido $actual)" >&2
+  echo "statio: the checksum does not match (expected $expected, got $actual)" >&2
   exit 1
 fi
 
 chmod +x "${tmp}/statio"
-echo "Instalando en ${BINDIR}/statio..."
+echo "Installing to ${BINDIR}/statio..."
 if [ -w "$BINDIR" ]; then
   mv "${tmp}/statio" "${BINDIR}/statio"
 elif command -v sudo >/dev/null 2>&1; then
   sudo mv "${tmp}/statio" "${BINDIR}/statio"
 else
-  echo "statio: sin permiso de escritura en ${BINDIR} (ejecuta como root o define STATIO_BINDIR)" >&2
+  echo "statio: no write permission on ${BINDIR}. Run as root, or set STATIO_BINDIR." >&2
   exit 1
 fi
 
 echo ""
-echo "✓ $("${BINDIR}/statio" version 2>/dev/null || echo 'statio instalado')"
+echo "✓ $("${BINDIR}/statio" version 2>/dev/null || echo 'statio installed')"
 if [ -n "$installed" ]; then
-  # Actualización: si el agente corre como servicio, recárgalo para que tome el
-  # binario nuevo. Solo lo tocamos cuando la unit está activa.
+  # On an update, reload the agent so it picks up the new binary. We only touch
+  # the unit when it is active.
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet statio-agent 2>/dev/null; then
-    echo "  Reiniciando el agente (statio-agent) con el binario nuevo..."
-    systemctl restart statio-agent && echo "  ✓ agente reiniciado"
+    echo "  Restarting the agent (statio-agent) on the new binary..."
+    systemctl restart statio-agent && echo "  ✓ agent restarted"
   else
-    echo "  (no hay un agente statio-agent activo; nada que reiniciar)"
+    echo "  (no active statio-agent, so nothing to restart)"
   fi
 else
-  echo "  Siguiente paso:  sudo statio init server"
+  echo "  Next step:  sudo statio init server"
 fi
