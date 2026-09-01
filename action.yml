@@ -1,5 +1,5 @@
 name: "Statio Deploy"
-description: "Deploy a signed image to your own server over Tailscale — no SSH, no public port."
+description: "Deploy a signed image to your own server over Tailscale. No SSH, no public port."
 author: "accentiostudios"
 branding:
   icon: "upload-cloud"
@@ -16,7 +16,7 @@ inputs:
     description: "Your app's image repository (e.g. ghcr.io/org/api)"
     required: true
   digest:
-    description: "Image digest (sha256:...). Leave empty to let the action build & push the image for you."
+    description: "Image digest (sha256:...). Leave it empty and the action builds and pushes the image."
     required: false
     default: ""
   dockerfile:
@@ -32,7 +32,7 @@ inputs:
     required: false
     default: ${{ github.sha }}
   sign:
-    description: "cosign-sign the image with the run's keyless identity. Disable only if you already sign it yourself."
+    description: "cosign-sign the image with the run's keyless identity. Set it to false when you sign the image yourself."
     required: false
     default: "true"
   registry-username:
@@ -48,7 +48,7 @@ inputs:
     required: false
     default: "statio.yaml"
   env:
-    description: "Per-deploy env overrides as KEY=VALUE lines (source values from your repo/org secrets so GitHub masks them)"
+    description: "Per-deploy env values, one KEY=VALUE per line. Source them from repo or org secrets so GitHub masks them."
     required: false
     default: ""
   ts-oauth-client-id:
@@ -70,7 +70,7 @@ inputs:
     required: false
     default: "false"
   preflight:
-    description: "Run a read-only preflight check (port + reverse-proxy/DNS readiness) before deploying. Fails fast on a misconfiguration without changing anything on the server."
+    description: "Run a read-only readiness check (host port, reverse proxy, DNS) before deploying. It changes nothing and stops the job on a misconfiguration."
     required: false
     default: "true"
 

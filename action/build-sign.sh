@@ -16,7 +16,7 @@ digest="${STATIO_DIGEST:-}"
 # must not trip this check.
 case "${image##*/}" in
   *:*|*@*)
-    echo "::error::statio: 'image' input must be a repository like ghcr.io/org/app — got '$image' (remove the ':tag' or '@digest')." >&2
+    echo "::error::statio: the 'image' input must be a repository such as ghcr.io/org/app. Got '$image'; remove the ':tag' or '@digest'." >&2
     exit 1 ;;
 esac
 

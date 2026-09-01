@@ -9,7 +9,7 @@ set -euo pipefail
 digest="${STATIO_DIGEST:-}"
 [[ -z "$digest" ]] && digest="${STATIO_RESOLVED_DIGEST:-}"
 if [[ -z "$digest" ]]; then
-  echo "statio: no image digest — pass 'digest' or let the action build the image" >&2
+  echo "statio: no image digest: pass 'digest' or let the action build the image" >&2
   exit 1
 fi
 

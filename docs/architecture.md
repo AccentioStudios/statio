@@ -1,8 +1,13 @@
 # Architecture
 
-The architecture, deploy pipeline, signed wire contract and security model now live on the
-documentation site, kept in sync with the code:
+The design, the deploy pipeline, the signed wire contract and the security model live on the
+documentation site, kept in step with the code:
 
-**https://statio.accentio.dev/architecture/**
+- [How statio works](https://statio.accentio.dev/explanation/how-statio-works/)
+- [Why Tailscale instead of SSH](https://statio.accentio.dev/explanation/why-tailscale-not-ssh/)
+- [Security model](https://statio.accentio.dev/explanation/security-model/)
+- [Deploy pipeline](https://statio.accentio.dev/reference/pipeline/)
+- [Wire contract](https://statio.accentio.dev/reference/wire-contract/)
+- [Server files and anchors](https://statio.accentio.dev/reference/server-config/)
 
-The source for that page is [`website/src/content/docs/architecture.md`](../website/src/content/docs/architecture.md).
+Their source lives in [`website/src/content/docs/`](../website/src/content/docs/).
