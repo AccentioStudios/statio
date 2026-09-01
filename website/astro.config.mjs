@@ -6,10 +6,22 @@ import starlight from '@astrojs/starlight';
 export default defineConfig({
   // Served from the custom domain at the root (CNAME: statio.accentio.dev).
   site: 'https://statio.accentio.dev',
+  // The docs follow Diátaxis (tutorial / how-to / reference / explanation). These keep the
+  // pre-Diátaxis URLs working; fragments cannot survive a redirect, so in-repo links to
+  // /architecture/#... were rewritten instead.
+  redirects: {
+    '/getting-started': '/tutorials/first-deploy',
+    '/architecture': '/explanation/how-statio-works',
+    '/guides/domains': '/how-to/add-a-domain',
+    '/guides/environment': '/how-to/pass-secrets',
+    '/guides/rollback': '/how-to/roll-back',
+    '/guides/multi-service': '/how-to/run-dependencies',
+    '/reference/troubleshooting': '/reference/error-codes',
+  },
   integrations: [
     starlight({
       title: 'Statio',
-      description: 'Deploy to your own server with a git push — no SSH, no open ports.',
+      description: 'Deploy to your own server with a git push. No SSH, no open ports.',
       logo: {
         light: './src/assets/statio-light-horizontal.svg',
         dark: './src/assets/statio-dark-horizontal.svg',
@@ -25,17 +37,15 @@ export default defineConfig({
       },
       sidebar: [
         {
-          label: 'Start',
-          items: [{ label: 'Getting started', slug: 'getting-started' }],
+          label: 'Tutorials',
+          items: [{ label: 'Deploy your first app', slug: 'tutorials/first-deploy' }],
         },
-        { label: 'Guides', items: [{ autogenerate: { directory: 'guides' } }] },
+        { label: 'How-to guides', items: [{ autogenerate: { directory: 'how-to' } }] },
         { label: 'Reference', items: [{ autogenerate: { directory: 'reference' } }] },
+        { label: 'Explanation', items: [{ autogenerate: { directory: 'explanation' } }] },
         {
-          label: 'Internals',
-          items: [
-            { label: 'Architecture', slug: 'architecture' },
-            { label: 'Contributing', slug: 'contributing' },
-          ],
+          label: 'Project',
+          items: [{ label: 'Contributing', slug: 'contributing' }],
         },
       ],
     }),

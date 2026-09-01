@@ -1,15 +1,15 @@
 ---
 title: Statio
-description: Deploy to your own server with a git push — no SSH, no open ports.
+description: Deploy to your own server with a git push. No SSH, no open ports.
 template: splash
 hero:
-  tagline: Deploy to your own server with a git push — no SSH, no inbound deploy port. Signed deploys delivered over a private Tailscale network.
+  tagline: Deploy to your own server with a git push. No SSH, no inbound deploy port. Signed deploys delivered over a private Tailscale network.
   image:
     dark: ../../assets/statio-dark-horizontal.svg
     light: ../../assets/statio-light-horizontal.svg
   actions:
-    - text: Get started
-      link: /getting-started/
+    - text: Deploy your first app
+      link: /tutorials/first-deploy/
       icon: right-arrow
       variant: primary
     - text: View on GitHub
@@ -18,48 +18,50 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid, Code } from '@astrojs/starlight/components';
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## What is Statio?
+## What statio does
 
-**Statio** ships your Docker image to your own server with a `git push`. Your GitHub Actions
-workflow builds and signs the image; a lightweight **agent** on your server receives it, verifies
-the signature, and recreates the container.
+statio ships your Docker image to your own server with a `git push`. Your GitHub Actions workflow
+builds and signs the image. An agent on your server receives it, checks the signature against the
+repo you authorised, and recreates the container.
 
 ```
-git push ─▶ CI: build + sign ─▶ statio/action ─▶ agent on your server ─▶ deployed
+git push ─▶ CI builds and signs ─▶ agent on your server ─▶ deployed
 ```
-
-:::note[Tailscale is only the deploy channel]
-CI reaches the agent over a private **Tailscale** network — this replaces SSH and means the agent
-opens **no inbound deploy port**. statio does **not** serve your app over Tailscale (no
-`tailscale serve`): public traffic to your app goes the normal way, through a reverse proxy
-(NPMplus) on `80/443`, exactly as it would without statio.
-:::
 
 <CardGrid>
   <Card title="No SSH, no deploy port" icon="approve-check">
-    CI talks to the agent over a private Tailscale network — no SSH, no inbound deploy port. (Your
-    app is still served by your reverse proxy on 80/443.)
+    CI reaches the agent over a private Tailscale network. Your reverse proxy still serves the app on
+    80 and 443.
   </Card>
   <Card title="Signed deploys only" icon="seti:lock">
-    Only what your CI signed gets deployed — cosign keyless verification before anything runs.
+    The agent verifies a keyless cosign signature before it runs anything.
   </Card>
-  <Card title="Domain & DNS included" icon="globe">
-    Configure the reverse proxy (NPMplus) and Cloudflare DNS in the same deploy.
+  <Card title="Domain and DNS included" icon="globe">
+    The agent configures NPMplus and Cloudflare during the deploy, with credentials the workflow
+    never sees.
   </Card>
-  <Card title="Just an Actions step" icon="rocket">
-    Drops into GitHub Actions as one step. No brittle deploy scripts.
+  <Card title="One Actions step" icon="rocket">
+    Build, sign and deploy in a single step. No deploy scripts.
   </Card>
 </CardGrid>
 
 ## Install
 
-On the server, a single command:
+On the server:
 
 ```sh
 curl -fsSL https://statio.accentio.dev/install.sh | sudo sh
 ```
 
-Then follow the [Getting started](/getting-started/) walkthrough — server setup, the workflow
-step, and your first `git push` deploy.
+## Where to go
+
+- **[Deploy your first app](/tutorials/first-deploy/)** walks you from an empty server to a working
+  push.
+- **[How-to guides](/how-to/add-a-domain/)** cover domains, secrets, rollback, dependencies and
+  several servers.
+- **[Reference](/reference/statio-yaml/)** documents `statio.yaml`, the CLI, the Action, the pipeline
+  and every error code.
+- **[Explanation](/explanation/how-statio-works/)** covers the design: why Tailscale replaces SSH,
+  and the security model.

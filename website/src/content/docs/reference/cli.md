@@ -1,102 +1,150 @@
 ---
 title: CLI
-description: The statio command-line reference.
+description: Every statio command, where you run it, and its flags.
 sidebar:
   order: 2
 ---
 
-`statio --help` groups the commands the same way this page does — **Setup**, **Apps & config**,
-**Operate**, **Maintenance**, and **Internal** (run by systemd & the Action, not by hand).
+`statio --help` groups the commands the way this page does.
 
-```sh
-# Setup — on the server, then in your repo
-statio init server          # wizard: configure + start the agent (CI joins with its own tag:ci OAuth client)
-statio init integrations    # wizard: NPMplus + Cloudflare + public IP
-statio init repo            # wizard: statio.yaml + how to call the Action
+Setup and app commands run on the server, as root. `status` and `logs --target` run from a machine on
+the tailnet, such as your laptop or a CI runner. The server's own OS is not a tailnet peer, since the
+agent runs Tailscale in userspace, so `statio status` cannot query the agent from the server itself.
+Use `statio doctor` there.
 
-# Apps & config — on the server
-statio app add [name]       # wizard: accept an app — image repo, signer identity, domains
-statio app list             # list apps; pick one to view its config + setup steps, or edit it
-statio app edit <name>      # re-run the wizard (current values pre-filled) to change an app
-statio app rm <name>        # stop accepting an app's deploys
-statio env set <svc> KEY=VALUE [--protected] [--required]
-statio env set <svc> KEY --secret-stdin          # ops secret via stdin
-statio env list <svc>
-statio env rm  <svc> KEY
+## Setup
 
-# Operate — from a machine ON the tailnet (your laptop or CI), NOT the server
-statio status --target <agent-host>              # the agent's health + the apps it accepts
-statio logs <svc> [--target <agent-host>]        # deploy audit log (local file, or a remote agent)
+| Command | Where | What it does |
+|---|---|---|
+| `statio init server` | server | Writes the agent config and the systemd unit, then enables and starts `statio-agent`. |
+| `statio init integrations` | server | Configures NPMplus, Cloudflare, and the pinned public IP. Idempotent. |
+| `statio init repo` | your repo | Writes `statio.yaml` and prints or generates the workflow. |
 
-# Maintenance
-statio upgrade [--check] [--no-restart]          # self-update (verifies the checksum)
-statio doctor [--fix]                            # environment diagnostics (and safe auto-fixes)
-statio version                                   # or: statio --version
+### statio init server
 
-# Internal — run by systemd & the GitHub Action, not by hand
-statio agent run --config <path>
-statio deploy ...
-statio preflight ...                             # read-only dry-run: port + proxy/DNS readiness
-```
+| Flag | Default | Meaning |
+|---|---|---|
+| `--hostname` | detected | The tsnet MagicDNS hostname. |
+| `--ts-oauth-client-id` | | The agent's Tailscale OAuth client id. |
+| `--ts-oauth-secret-stdin` | `false` | Read the client secret from stdin. |
+| `--ts-oauth-secret-file` | | Read the client secret from a file. |
+| `--issuer` | | The cosign OIDC issuer. |
 
-`statio preflight` takes the same inputs as `statio deploy` and sends the same signed payload, but
-to the agent's read-only `/preflight` endpoint: it checks the app's host port is free and — if the
-`statio.yaml` requests a public domain — that NPMplus is configured, reachable and the domain is
-allowlisted, **changing nothing**. The Action runs it automatically before each deploy (disable with
-the `preflight: false` input). A failed check is a non-zero exit with the reason and a hint.
+### statio init repo
 
-The wizards (`init server`, `init integrations`, `init repo`, `app add`, `app edit`) are
-interactive: run them without flags and they guide you. `app list` is interactive too — it lets you
-pick an app and then view its config (with the workflow snippet and secrets) or re-run the wizard to
-edit it. In CI/scripts they accept flags and secrets via `--*-stdin`; the
-Action uses the flag form automatically.
+| Flag | Default | Meaning |
+|---|---|---|
+| `--target` | | The agent's MagicDNS host, for the printed snippet. |
+| `--service` | | The service name. |
+| `--image` | | The image repository. |
+| `--branch` | `main` | The deploy branch, for the printed cosign identity. |
+| `--workflow` | `deploy.yml` | The workflow file name, for the printed identity. |
+| `--create-workflow` | `false` | Generate a starter `deploy.yml` when none exists. |
+| `--out` | `.github/workflows/deploy.yml` | Where to write it. |
+| `--statio-out` | `statio.yaml` | Where to write the starter `statio.yaml`. |
+| `--action-ref` | `accentiostudios/statio@v1` | The Action ref used in the snippet. |
 
-### Private images
+`init repo` never edits an existing workflow. It prints the step for you to paste.
 
-Nothing to configure on the server. The agent has **no GitHub identity**, so the Action forwards the
-run's short-lived token (the same `GITHUB_TOKEN` it pushes with) inside the signed deploy; the agent
-uses it only to read the image's cosign signature and pull it, in memory, then discards it. Keep
-`packages: write` in the workflow `permissions`. The token is per-run and expires when the job ends —
-no credential is ever stored on the server.
+## Apps and config, on the server
 
-## Checking a running agent
+| Command | What it does |
+|---|---|
+| `statio app add [name]` | Accepts an app: its image repository, its cosign signer, its allowed domains. |
+| `statio app list` | Lists accepted apps, then lets you view one's config or edit it. |
+| `statio app edit <name>` | Re-runs the wizard with the current values filled in. |
+| `statio app rm <name>` | Stops accepting an app's deploys and frees its host port. |
+| `statio env set <svc> KEY=VALUE` | Sets a server-side base env key. |
+| `statio env set <svc> KEY --secret-stdin` | Reads the value from stdin and stores a secret reference. |
+| `statio env list <svc>` | Lists base keys, with secret and protected values redacted. |
+| `statio env rm <svc> KEY` | Removes a base key. |
 
-Two different checks, for two different places:
+### statio app add
 
-- **On the server** → `sudo statio doctor`. The server's own OS is **not** a tailnet peer (the agent
-  runs in userspace via tsnet), so you can't reach the agent from the server itself — `doctor` checks
-  it locally instead (service state, config, the agent's last log line if it's down).
-- **From your laptop or CI** (a machine **on the tailnet**) → `statio status --target <agent-host>`
-  queries the agent's `/status` over the tailnet and prints its health and the apps it accepts. The
-  `<agent-host>` is the agent's MagicDNS name (e.g. `statio.your-tailnet.ts.net`) — the address
-  `init server` printed. `statio logs <svc> --target <agent-host>` fetches a service's deploy history
-  the same way.
+| Flag | Default | Meaning |
+|---|---|---|
+| `--image` | | The image repository, compared for equality on every deploy. |
+| `--repo` | | `owner/repo` or a URL. The app's signing identity. |
+| `--workflow` | `deploy.yml` | The workflow file of the signing identity. |
+| `--branch` | `main` | The branch allowed to deploy. |
+| `--issuer` | | The cosign OIDC issuer. |
+| `--registries` | `docker.io,ghcr.io` | Registries allowed for dependency images. |
+| `--proxy-domain-suffix` | | Domain suffixes this app may claim on the proxy. |
+| `--proxy-upstream` | | Allowed upstream containers. |
+| `--dns-domain-suffix` | | Domain suffixes this app may claim in DNS. |
+| `--rollback` | `true` | Roll back when the health check fails. |
+| `--max-services` | `10` | Cap on services in one deploy. |
+| `--services-dir` | `/etc/statio/services` | Where manifests live. |
+| `--state-dir` | `/var/lib/statio` | Where the port registry lives. |
 
-## Self-update & diagnostics
+`app rm` takes `-y` to skip its confirmation.
 
-- `statio upgrade` downloads the latest release, verifies its sha256 against `checksums.txt`,
-  replaces the running binary in place, and restarts the `statio-agent` service when it's active
-  (so the new binary takes effect immediately). `--no-restart` skips that; `--check` only reports
-  whether a newer version exists.
-- `statio doctor` checks your environment: binary version vs latest, Docker
-  daemon, git, gh **and whether it's logged in**, cosign (only
-  relevant in CI), the agent config **and the secret files it references**, the **state dir** and the
-  service, and GitHub reachability. It runs the *same secret-file check the agent runs at boot*, so a
-  missing or world-readable secret is caught here instead of as a silent crash-loop — and when the
-  service is down it prints the agent's last log line (read as root) so you see *why*. On a server run
-  it with **`sudo statio doctor`** for the full picture — the config, the secret files and the service
-  all need root, while the gh check is still done as the user you sudo from. `statio doctor --fix` resolves what it safely can on its own (create a missing state dir,
-  tighten a loose secret's perms, restart a crash-looping agent) and tells you which remaining fixes
-  need a `sudo` re-run. A *missing* secret it can't fabricate — it points you at the `init` step that
-  regenerates it.
-- The CLI also nudges you when a newer version exists. Disable it with `STATIO_NO_UPDATE_CHECK=1`.
+### statio env set
 
-## Server install & update
+| Flag | Meaning |
+|---|---|
+| `--secret-stdin` | Read the value from stdin and store a secret reference. |
+| `--protected` | CI cannot override this key. A deploy that tries fails with `422 [protected]`. |
+| `--required` | A deploy must supply this key, or it fails with `422 [required]`. |
 
-```sh
-curl -fsSL https://statio.accentio.dev/install.sh | sudo sh
-```
+## Operate, from a machine on the tailnet
 
-Re-running the installer updates only when a newer version exists, and restarts the `statio-agent`
-service when it's running. `STATIO_VERSION=vX.Y.Z` pins a version; `STATIO_BINDIR=/usr/bin` changes
-the install dir.
+| Command | What it does |
+|---|---|
+| `statio status --target <host>` | Queries the agent's `/status` and prints its health and the apps it accepts. |
+| `statio logs <svc>` | Reads the local deploy audit log on the server. |
+| `statio logs <svc> --target <host>` | Fetches a remote agent's log over the tailnet, redacted. |
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--target` | | The agent's MagicDNS host, such as `statio.your-tailnet.ts.net`. |
+| `--limit` | `20` | Records to show. |
+| `--json` | `false` | Emit raw JSON records. |
+| `--state-dir` | `/var/lib/statio` | Where the local log lives. |
+
+## Maintenance
+
+| Command | What it does |
+|---|---|
+| `statio upgrade` | Downloads the latest release, verifies its checksum, replaces the binary, restarts the agent when it runs. |
+| `statio doctor` | Checks the environment and reports what is missing. |
+| `statio version` | Prints the version. Same as `statio --version`. |
+
+| Flag | Command | Meaning |
+|---|---|---|
+| `--check` | `upgrade` | Report whether a newer version exists, and install nothing. |
+| `--no-restart` | `upgrade` | Replace the binary and leave the service alone. |
+| `--version` | `upgrade` | Install an exact version, such as `v1.2.3`. |
+| `-y` | `upgrade` | Skip the confirmation. |
+| `--fix` | `doctor` | Apply the safe repairs: create a missing state directory, tighten a secret's permissions, restart a crash-looping agent. Needs root. |
+| `--config` | `doctor` | Path to the agent's `config.yaml`. |
+
+`statio doctor` runs the same secret-file check the agent runs at boot, so a missing or world-readable
+secret shows up here instead of as a crash loop. When the service is down it prints the agent's last
+log line. Run it with `sudo` on a server for the full picture.
+
+The CLI checks for a newer release once a day and prints a line when it finds one. Set
+`STATIO_NO_UPDATE_CHECK=1` to silence it.
+
+## Internal, run by systemd and the Action
+
+| Command | Run by |
+|---|---|
+| `statio agent run --config <path>` | systemd |
+| `statio deploy …` | the GitHub Action |
+| `statio preflight …` | the GitHub Action |
+
+### statio deploy and statio preflight
+
+Both take the same inputs. `preflight` posts the same signed payload to the agent's read-only
+`/preflight` endpoint, which checks the host port and the proxy and DNS readiness and changes nothing.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--target` | | The agent's MagicDNS host. Also the signed audience. |
+| `--service` | | The service slot, accepted on the server. |
+| `--image` | | The image repository, with no tag or digest. |
+| `--digest` | | The image digest, `sha256:…`. |
+| `--statio-file` | `statio.yaml` | Path to the repo's `statio.yaml`. |
+| `--audience` | `--target` | Override the signed audience. |
+| `--strict` | `false` | Treat `success_degraded` as a failure. |
