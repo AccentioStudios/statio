@@ -3,6 +3,8 @@ title: Code layout
 description: What lives in each package of the statio repo.
 sidebar:
   order: 8
+prev: false
+next: false
 ---
 
 | Path | Responsibility |

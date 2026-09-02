@@ -1,6 +1,8 @@
 ---
 title: Contributing
 description: Build statio, run the checks CI runs, and open a change.
+prev: false
+next: false
 ---
 
 statio is open source. [`CONTRIBUTING.md`](https://github.com/accentiostudios/statio/blob/main/CONTRIBUTING.md)

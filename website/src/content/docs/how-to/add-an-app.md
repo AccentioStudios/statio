@@ -2,7 +2,9 @@
 title: Accept another app
 description: Authorise a second app on a server, from any repo or organisation.
 sidebar:
-  order: 2
+  order: 4
+prev: false
+next: false
 ---
 
 One server hosts as many apps as you accept. Each app pins its own repo, so apps can come from

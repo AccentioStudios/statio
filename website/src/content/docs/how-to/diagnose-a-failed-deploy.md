@@ -3,6 +3,10 @@ title: Diagnose a failed deploy
 description: Work from the CI output down to the agent journal, in order.
 sidebar:
   order: 9
+prev: false
+next:
+  link: /reference/error-codes/
+  label: Error codes
 ---
 
 Follow these steps in order. Each one narrows the search before the next.

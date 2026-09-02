@@ -3,6 +3,8 @@ title: statio.yaml
 description: Every field of the repo's deploy description, with its type and limits.
 sidebar:
   order: 1
+prev: false
+next: false
 ---
 
 `statio.yaml` sits at the root of your repo and describes the containers of one deployment. The

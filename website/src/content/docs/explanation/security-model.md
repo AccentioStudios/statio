@@ -3,6 +3,10 @@ title: Security model
 description: The invariants that hold, what each one blocks, and the limits statio does not claim to solve.
 sidebar:
   order: 3
+prev:
+  link: /explanation/why-tailscale-not-ssh/
+  label: Why Tailscale instead of SSH
+next: false
 ---
 
 statio's security rests on one idea: the agent trusts a signature, never a network position and never

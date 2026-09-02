@@ -2,7 +2,9 @@
 title: Set up Tailscale
 description: Create the tags and the two OAuth clients that CI and the agent join with.
 sidebar:
-  order: 1
+  order: 7
+prev: false
+next: false
 ---
 
 Do this once per tailnet, before the first `statio init server`. Everything happens in the Tailscale

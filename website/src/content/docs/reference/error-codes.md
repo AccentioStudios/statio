@@ -3,6 +3,8 @@ title: Error codes
 description: Every code a deploy or preflight can return, its cause, and the fix.
 sidebar:
   order: 7
+prev: false
+next: false
 ---
 
 Each failure carries a stable code in brackets and a hint. Raw docker and compose output stays in

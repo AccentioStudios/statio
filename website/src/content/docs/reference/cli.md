@@ -3,6 +3,8 @@ title: CLI
 description: Every statio command, where you run it, and its flags.
 sidebar:
   order: 2
+prev: false
+next: false
 ---
 
 `statio --help` groups the commands the way this page does.

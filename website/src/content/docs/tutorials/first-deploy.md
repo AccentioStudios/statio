@@ -3,6 +3,10 @@ title: Deploy your first app
 description: From an empty server to a git push that deploys, in seven steps.
 sidebar:
   order: 1
+prev: false
+next:
+  link: /how-to/add-a-domain/
+  label: Add a domain
 ---
 
 By the end of this tutorial you push a commit and your app runs on your own server, in a container,

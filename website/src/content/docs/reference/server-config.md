@@ -3,6 +3,8 @@ title: Server files and anchors
 description: What each statio command writes on the server, and what a deploy is compared against.
 sidebar:
   order: 6
+prev: false
+next: false
 ---
 
 ## Paths

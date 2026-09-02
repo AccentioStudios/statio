@@ -3,6 +3,8 @@ title: GitHub Action
 description: Inputs, permissions, and the workflow statio generates.
 sidebar:
   order: 3
+prev: false
+next: false
 ---
 
 statio publishes one Action on the Marketplace, `accentiostudios/statio@v1`. A single step builds and

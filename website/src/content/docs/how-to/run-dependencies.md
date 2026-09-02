@@ -2,7 +2,9 @@
 title: Run a database alongside your app
 description: Add Postgres, Redis or any other container to the same deployment.
 sidebar:
-  order: 6
+  order: 5
+prev: false
+next: false
 ---
 
 One `statio.yaml` describes every container in a deployment. Your app is the service with no

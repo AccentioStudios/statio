@@ -3,6 +3,8 @@ title: Wire contract
 description: The signed envelope, the DeployRequest fields, and the limits the agent enforces.
 sidebar:
   order: 5
+prev: false
+next: false
 ---
 
 CI sends an envelope. The agent verifies it before it acts on anything inside.

@@ -2,7 +2,13 @@
 title: Why Tailscale instead of SSH
 description: What the private network carries, what it does not, and the constraints behind the choice.
 sidebar:
-  order: 1
+  order: 2
+prev:
+  link: /explanation/how-statio-works/
+  label: How statio works
+next:
+  link: /explanation/security-model/
+  label: Security model
 ---
 
 Most self-hosted deploys end with a CI job holding an SSH key to a production server. That key is a

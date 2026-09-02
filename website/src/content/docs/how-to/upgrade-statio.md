@@ -3,6 +3,8 @@ title: Install and upgrade statio
 description: Install the binary on a server, update it, and check the environment.
 sidebar:
   order: 8
+prev: false
+next: false
 ---
 
 ## Install

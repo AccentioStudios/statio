@@ -3,6 +3,8 @@ title: Deploy pipeline
 description: The ordered stages of a deploy, the gates, and every terminal state.
 sidebar:
   order: 4
+prev: false
+next: false
 ---
 
 The agent runs one pipeline per service, under a `flock`, in this order.

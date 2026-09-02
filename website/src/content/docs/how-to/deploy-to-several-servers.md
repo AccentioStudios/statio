@@ -2,7 +2,9 @@
 title: Deploy to several servers
 description: Send the same repo to staging and production, each with its own agent.
 sidebar:
-  order: 7
+  order: 6
+prev: false
+next: false
 ---
 
 statio works per server. Each server runs its own agent, with its own hostname, and CI picks one by

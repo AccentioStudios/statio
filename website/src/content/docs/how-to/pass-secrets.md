@@ -2,7 +2,9 @@
 title: Pass secrets to a container
 description: Route a value from GitHub Secrets into your app, or set one server-side.
 sidebar:
-  order: 4
+  order: 2
+prev: false
+next: false
 ---
 
 `statio.yaml` declares key names. The values come from GitHub Secrets, or from a server-side base you

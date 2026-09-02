@@ -2,7 +2,9 @@
 title: Roll back a deploy
 description: Redeploy an earlier digest, and what the agent does on a failed health check.
 sidebar:
-  order: 5
+  order: 3
+prev: false
+next: false
 ---
 
 ## Roll back by hand

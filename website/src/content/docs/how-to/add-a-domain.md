@@ -2,7 +2,9 @@
 title: Add a domain
 description: Serve an app over HTTPS through NPMplus, with a Cloudflare DNS record.
 sidebar:
-  order: 3
+  order: 1
+prev: false
+next: false
 ---
 
 The agent configures the reverse proxy and the DNS record during a deploy, with credentials you give

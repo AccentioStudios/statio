@@ -2,7 +2,11 @@
 title: How statio works
 description: The two halves, the one contract between them, and why a deploy carries data instead of scripts.
 sidebar:
-  order: 2
+  order: 1
+prev: false
+next:
+  link: /explanation/why-tailscale-not-ssh/
+  label: Why Tailscale instead of SSH
 ---
 
 statio is one binary that plays two roles. On your server it runs as an agent under systemd. On a
