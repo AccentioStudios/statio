@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-
-	"github.com/accentiostudios/statio/internal/fsutil"
 )
 
 // State is the per-service deploy state, persisted atomically to state.json (0600 root).
@@ -66,13 +64,14 @@ func LoadState(path, service string) (*State, error) {
 	return &s, nil
 }
 
-// Save atomically writes the state.
+// Save atomically writes the state, creating the per-service state dir (0700) on an app's
+// first deploy: nothing else creates it before persist runs.
 func (s *State) Save(path string) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fsutil.SecureWrite(path, data, 0o600)
+	return writeFileSecure(path, data)
 }
 
 // Advance sets snap as the new last_good and appends the previous good to history
